@@ -1,0 +1,19 @@
+node_modules/
+.env
+.DS_Store
+*.log
+dist/
+build/
+.npm
+.pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 데이터 파일 (필요시 주석 해제)
+# data/raw/*.csv
+# data/uploads/*.csv
