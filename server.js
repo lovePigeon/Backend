@@ -14,6 +14,7 @@ import geoRoutes from './routes/geo.js';
 import dataRoutes from './routes/data.js';
 import dataImportRoutes from './routes/dataImport.js';
 import dashboardRoutes from './routes/dashboard.js';
+import analyticsRoutes from './routes/analytics.js';
 
 dotenv.config();
 
@@ -45,6 +46,7 @@ app.use('/api/v1/geo', geoRoutes);
 app.use('/api/v1/data', dataRoutes);
 app.use('/api/v1/data', dataImportRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
+app.use('/api/v1/analytics', analyticsRoutes);
 
 // 루트
 /**
@@ -69,7 +71,8 @@ app.get('/', (req, res) => {
       priority_queue: '/api/v1/priority-queue',
       action_cards: '/api/v1/action-cards',
       interventions: '/api/v1/interventions',
-      geo: '/api/v1/geo'
+      geo: '/api/v1/geo',
+      analytics: '/api/v1/analytics'
     }
   });
 });

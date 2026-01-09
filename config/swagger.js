@@ -26,7 +26,8 @@ const options = {
       { name: 'Interventions', description: 'Interventions and tracking' },
       { name: 'GeoJSON', description: 'GeoJSON endpoints for Mapbox' },
       { name: 'Data', description: 'Data upload and management' },
-      { name: 'Dashboard', description: 'Dashboard data endpoints' }
+      { name: 'Dashboard', description: 'Dashboard data endpoints' },
+      { name: 'Analytics', description: 'Data analysis and statistics endpoints' }
     ],
     components: {
       schemas: {

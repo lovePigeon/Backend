@@ -4,7 +4,8 @@ import SignalGeo from '../models/SignalGeo.js';
 import SignalPopulation from '../models/SignalPopulation.js';
 import ComfortIndex from '../models/ComfortIndex.js';
 import Intervention from '../models/Intervention.js';
-import { format, subDays, subWeeks, subMonths, startOfDay, endOfDay } from 'date-fns';
+import SpatialUnit from '../models/SpatialUnit.js';
+import { format, subDays, subWeeks, subMonths, startOfDay, endOfDay, startOfQuarter, endOfQuarter, eachQuarterOfInterval, getQuarter, parseISO } from 'date-fns';
 
 const router = express.Router();
 
@@ -185,6 +186,18 @@ router.get('/human-signal', async (req, res) => {
       if (!byDayOfWeek[dayOfWeek]) byDayOfWeek[dayOfWeek] = 0;
       byDayOfWeek[dayOfWeek] += signal.complaint_total || 0;
 
+      // 시간대별 집계 (raw 데이터에 시간 정보가 있다면)
+      if (signal.raw && signal.raw.get) {
+        const hourData = signal.raw.get('hour_distribution') || {};
+        Object.keys(hourData).forEach(hour => {
+          const h = parseInt(hour);
+          if (h >= 0 && h < 24) {
+            if (!byHour[h]) byHour[h] = 0;
+            byHour[h] += hourData[hour] || 0;
+          }
+        });
+      }
+
       trends.push({
         date: signal.date,
         total: signal.complaint_total || 0,
@@ -195,6 +208,12 @@ router.get('/human-signal', async (req, res) => {
       });
     });
 
+    // 24시간 패턴 생성 (없으면 빈 배열)
+    const hourPattern = Array.from({ length: 24 }, (_, i) => ({
+      hour: i,
+      complaints: byHour[i] || 0
+    }));
+
     res.json({
       success: true,
       period,
@@ -203,6 +222,8 @@ router.get('/human-signal', async (req, res) => {
         total_complaints: total,
         average_per_day: signals.length > 0 ? total / signals.length : 0,
         by_day_of_week: byDayOfWeek,
+        by_hour: byHour,
+        hour_pattern: hourPattern,
         repeat_count: signals.filter(s => (s.repeat_ratio || 0) > 0.5).length
       },
       trends: trends,
@@ -724,6 +745,528 @@ router.get('/interventions/:intervention_id/effect', async (req, res) => {
     res.status(500).json({
       success: false,
       message: '개입 효과 분석 중 오류가 발생했습니다.',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/v1/dashboard/trends:
+ *   get:
+ *     summary: 전체 추세 지표 (분기별)
+ *     tags: [Dashboard]
+ *     parameters:
+ *       - in: query
+ *         name: period
+ *         schema:
+ *           type: string
+ *           enum: [quarter, month]
+ *           default: quarter
+ *     responses:
+ *       200:
+ *         description: 분기별 추세 데이터
+ *         content:
+ *           application/json:
+ *             examples:
+ *               trends:
+ *                 value:
+ *                   success: true
+ *                   period: "quarter"
+ *                   data:
+ *                     - period: "2023 Q1"
+ *                       citywide: 64
+ *                       improvement: 3
+ *                     - period: "2023 Q2"
+ *                       citywide: 67
+ *                       improvement: 3
+ */
+router.get('/trends', async (req, res) => {
+  try {
+    const { period = 'quarter' } = req.query;
+    const now = new Date();
+    
+    let data = [];
+    
+    if (period === 'quarter') {
+      // 최근 4개 분기 데이터
+      const quarters = [];
+      for (let i = 0; i < 4; i++) {
+        const quarterDate = subMonths(now, i * 3);
+        const quarter = getQuarter(quarterDate);
+        const year = quarterDate.getFullYear();
+        const quarterStart = startOfQuarter(quarterDate);
+        const quarterEnd = endOfQuarter(quarterDate);
+        
+        const indices = await ComfortIndex.find({
+          date: {
+            $gte: format(quarterStart, 'yyyy-MM-dd'),
+            $lte: format(quarterEnd, 'yyyy-MM-dd')
+          }
+        });
+        
+        const avgScore = indices.length > 0
+          ? indices.reduce((sum, ci) => sum + ci.uci_score, 0) / indices.length
+          : 0;
+        
+        quarters.push({
+          period: `${year} Q${quarter}`,
+          citywide: Math.round(avgScore * 10) / 10,
+          improvement: 0 // 이전 분기 대비 계산
+        });
+      }
+      
+      // improvement 계산
+      for (let i = 1; i < quarters.length; i++) {
+        quarters[i].improvement = Math.round((quarters[i].citywide - quarters[i-1].citywide) * 10) / 10;
+      }
+      
+      data = quarters.reverse();
+    } else {
+      // 월별 데이터
+      const months = [];
+      for (let i = 0; i < 6; i++) {
+        const monthDate = subMonths(now, i);
+        const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+        const monthEnd = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0);
+        
+        const indices = await ComfortIndex.find({
+          date: {
+            $gte: format(monthStart, 'yyyy-MM-dd'),
+            $lte: format(monthEnd, 'yyyy-MM-dd')
+          }
+        });
+        
+        const avgScore = indices.length > 0
+          ? indices.reduce((sum, ci) => sum + ci.uci_score, 0) / indices.length
+          : 0;
+        
+        months.push({
+          period: format(monthDate, 'yyyy-MM'),
+          citywide: Math.round(avgScore * 10) / 10,
+          improvement: 0
+        });
+      }
+      
+      for (let i = 1; i < months.length; i++) {
+        months[i].improvement = Math.round((months[i].citywide - months[i-1].citywide) * 10) / 10;
+      }
+      
+      data = months.reverse();
+    }
+    
+    res.json({
+      success: true,
+      period,
+      data
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: '추세 데이터 조회 중 오류가 발생했습니다.',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/v1/dashboard/regional-trends:
+ *   get:
+ *     summary: 지역별 현황 (구 단위)
+ *     tags: [Dashboard]
+ *     parameters:
+ *       - in: query
+ *         name: date
+ *         schema:
+ *           type: string
+ *           format: date
+ *     responses:
+ *       200:
+ *         description: 지역별 현황 데이터
+ *         content:
+ *           application/json:
+ *             examples:
+ *               regionalTrends:
+ *                 value:
+ *                   success: true
+ *                   data:
+ *                     - district: "강남구"
+ *                       lat: 37.5172
+ *                       lng: 127.0473
+ *                       trend: "improving"
+ *                       index: 64
+ */
+router.get('/regional-trends', async (req, res) => {
+  try {
+    const { date } = req.query;
+    const targetDate = date ? parseISO(date) : new Date();
+    const dateStr = format(targetDate, 'yyyy-MM-dd');
+    
+    // 이전 주 데이터와 비교
+    const prevWeek = format(subDays(targetDate, 7), 'yyyy-MM-dd');
+    
+    const currentIndices = await ComfortIndex.find({ date: dateStr });
+    const prevIndices = await ComfortIndex.find({ date: prevWeek });
+    
+    const currentMap = {};
+    currentIndices.forEach(ci => {
+      currentMap[ci.unit_id] = ci.uci_score;
+    });
+    
+    const prevMap = {};
+    prevIndices.forEach(ci => {
+      prevMap[ci.unit_id] = ci.uci_score;
+    });
+    
+    // 구 단위로 집계 (unit_id에서 구 추출 또는 meta 사용)
+    const units = await SpatialUnit.find({});
+    const districtMap = {};
+    
+    units.forEach(unit => {
+      const district = unit.meta?.get('district') || unit.name.split('구')[0] + '구' || '알 수 없음';
+      if (!districtMap[district]) {
+        districtMap[district] = {
+          district,
+          indices: [],
+          lat: unit.geom?.coordinates?.[0]?.[0]?.[1] || 37.5665,
+          lng: unit.geom?.coordinates?.[0]?.[0]?.[0] || 126.9780
+        };
+      }
+      
+      const currentScore = currentMap[unit._id] || 0;
+      const prevScore = prevMap[unit._id] || 0;
+      
+      if (currentScore > 0) {
+        districtMap[district].indices.push({
+          current: currentScore,
+          prev: prevScore,
+          change: currentScore - prevScore
+        });
+      }
+    });
+    
+    const data = Object.values(districtMap).map(d => {
+      const avgCurrent = d.indices.length > 0
+        ? d.indices.reduce((sum, i) => sum + i.current, 0) / d.indices.length
+        : 0;
+      const avgChange = d.indices.length > 0
+        ? d.indices.reduce((sum, i) => sum + i.change, 0) / d.indices.length
+        : 0;
+      
+      let trend = 'stable';
+      if (avgChange < -5) trend = 'improving';
+      else if (avgChange > 5) trend = 'monitoring';
+      else if (avgCurrent > 70) trend = 'attention';
+      
+      return {
+        district: d.district,
+        lat: d.lat,
+        lng: d.lng,
+        trend,
+        index: Math.round(avgCurrent * 10) / 10
+      };
+    });
+    
+    res.json({
+      success: true,
+      data
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: '지역별 현황 조회 중 오류가 발생했습니다.',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/v1/dashboard/time-pattern:
+ *   get:
+ *     summary: 시간대별 패턴 분석
+ *     tags: [Dashboard]
+ *     parameters:
+ *       - in: query
+ *         name: unit_id
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: query
+ *         name: date
+ *         schema:
+ *           type: string
+ *           format: date
+ *       - in: query
+ *         name: period
+ *         schema:
+ *           type: string
+ *           enum: [week, month]
+ *           default: week
+ *     responses:
+ *       200:
+ *         description: 시간대별 패턴 데이터
+ *         content:
+ *           application/json:
+ *             examples:
+ *               timePattern:
+ *                 value:
+ *                   success: true
+ *                   location: "서울시 강남구 역삼동"
+ *                   hour_pattern:
+ *                     - hour: 0
+ *                       complaints: 0
+ *                       population: 150
+ *                     - hour: 20
+ *                       complaints: 5
+ *                       population: 800
+ *                   day_pattern:
+ *                     - day: "월"
+ *                       complaints: 3
+ *                   peak_hours: [20, 21, 22, 23]
+ *                   recommended_action: "야간 집중 관리 필요 (20-23시)"
+ */
+router.get('/time-pattern', async (req, res) => {
+  try {
+    const { unit_id, date, period = 'week' } = req.query;
+    
+    if (!unit_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'unit_id 파라미터가 필요합니다.'
+      });
+    }
+    
+    const targetDate = date ? parseISO(date) : new Date();
+    let startDate, endDate;
+    
+    if (period === 'week') {
+      startDate = format(subDays(targetDate, 7), 'yyyy-MM-dd');
+      endDate = format(targetDate, 'yyyy-MM-dd');
+    } else {
+      startDate = format(subDays(targetDate, 30), 'yyyy-MM-dd');
+      endDate = format(targetDate, 'yyyy-MM-dd');
+    }
+    
+    const humanSignals = await SignalHuman.find({
+      unit_id,
+      date: { $gte: startDate, $lte: endDate }
+    }).sort({ date: 1 });
+    
+    const popSignals = await SignalPopulation.find({
+      unit_id,
+      date: { $gte: startDate, $lte: endDate }
+    }).sort({ date: 1 });
+    
+    const unit = await SpatialUnit.findById(unit_id);
+    const location = unit?.name || unit_id;
+    
+    // 시간대별 패턴 (24시간)
+    const hourPattern = Array.from({ length: 24 }, (_, i) => ({
+      hour: i,
+      complaints: 0,
+      population: 0
+    }));
+    
+    // 요일별 패턴
+    const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+    const dayPattern = dayNames.map(day => ({
+      day,
+      complaints: 0
+    }));
+    
+    humanSignals.forEach(signal => {
+      const dateObj = parseISO(signal.date);
+      const dayOfWeek = dateObj.getDay();
+      dayPattern[dayOfWeek].complaints += signal.complaint_total || 0;
+      
+      // raw 데이터에서 시간대별 정보 추출
+      if (signal.raw && signal.raw.get) {
+        const hourData = signal.raw.get('hour_distribution') || {};
+        Object.keys(hourData).forEach(hour => {
+          const h = parseInt(hour);
+          if (h >= 0 && h < 24) {
+            hourPattern[h].complaints += hourData[hour] || 0;
+          }
+        });
+      }
+    });
+    
+    // 생활인구 시간대별 패턴 (평균)
+    if (popSignals.length > 0) {
+      const avgPop = popSignals.reduce((sum, s) => sum + (s.pop_total || 0), 0) / popSignals.length;
+      const avgNightPop = popSignals.reduce((sum, s) => sum + (s.pop_night || 0), 0) / popSignals.length;
+      
+      // 야간 시간대에 인구 집중 (간단한 추정)
+      for (let h = 20; h < 24; h++) {
+        hourPattern[h].population = Math.round(avgNightPop * 0.3);
+      }
+      for (let h = 0; h < 6; h++) {
+        hourPattern[h].population = Math.round(avgNightPop * 0.2);
+      }
+      for (let h = 6; h < 20; h++) {
+        hourPattern[h].population = Math.round(avgPop * 0.05);
+      }
+    }
+    
+    // 피크 시간대 계산
+    const peakHours = hourPattern
+      .map((h, idx) => ({ hour: idx, complaints: h.complaints }))
+      .sort((a, b) => b.complaints - a.complaints)
+      .slice(0, 4)
+      .map(h => h.hour)
+      .sort((a, b) => a - b);
+    
+    let recommendedAction = '정기 모니터링 필요';
+    if (peakHours.length > 0 && peakHours.some(h => h >= 20)) {
+      recommendedAction = `야간 집중 관리 필요 (${peakHours.filter(h => h >= 20).join(', ')}시)`;
+    } else if (peakHours.length > 0) {
+      recommendedAction = `주요 시간대 관리 필요 (${peakHours.join(', ')}시)`;
+    }
+    
+    res.json({
+      success: true,
+      location,
+      hour_pattern: hourPattern,
+      day_pattern: dayPattern,
+      peak_hours: peakHours,
+      recommended_action: recommendedAction
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: '시간대별 패턴 분석 중 오류가 발생했습니다.',
+      error: error.message
+    });
+  }
+});
+
+/**
+ * @swagger
+ * /api/v1/dashboard/blind-spots:
+ *   get:
+ *     summary: 사각지대 탐지 (신호 간 불일치 분석)
+ *     tags: [Dashboard]
+ *     parameters:
+ *       - in: query
+ *         name: date
+ *         schema:
+ *           type: string
+ *           format: date
+ *       - in: query
+ *         name: risk_level
+ *         schema:
+ *           type: string
+ *           enum: [high, medium, low]
+ *     responses:
+ *       200:
+ *         description: 사각지대 탐지 데이터
+ *         content:
+ *           application/json:
+ *             examples:
+ *               blindSpots:
+ *                 value:
+ *                   success: true
+ *                   data:
+ *                     - id: "bs1"
+ *                       location: "서울시 강남구 논현동"
+ *                       lat: 37.5120
+ *                       lng: 127.0280
+ *                       risk_level: "high"
+ *                       detection_reason: "민원은 적으나 비둘기 활동이 급증하여 사각지대 가능성"
+ *                       signals:
+ *                         human:
+ *                           value: 3
+ *                           status: "low"
+ *                         geo:
+ *                           value: 6.5
+ *                           status: "normal"
+ *                       recommended_action: "현장 점검 및 추가 모니터링 필요"
+ */
+router.get('/blind-spots', async (req, res) => {
+  try {
+    const { date, risk_level } = req.query;
+    const targetDate = date ? parseISO(date) : new Date();
+    const dateStr = format(targetDate, 'yyyy-MM-dd');
+    
+    // UCI 점수가 낮은데 (좋은 상태) 다른 신호들이 높은 경우 탐지
+    const indices = await ComfortIndex.find({ date: dateStr });
+    const humanSignals = await SignalHuman.find({ date: dateStr });
+    const geoSignals = await SignalGeo.find({});
+    
+    const humanMap = {};
+    humanSignals.forEach(s => {
+      humanMap[s.unit_id] = s.complaint_total || 0;
+    });
+    
+    const geoMap = {};
+    geoSignals.forEach(s => {
+      geoMap[s._id] = calculateVulnerabilityScore(s);
+    });
+    
+    const blindSpots = [];
+    
+    for (const index of indices) {
+      const humanValue = humanMap[index.unit_id] || 0;
+      const geoValue = geoMap[index.unit_id] || 0;
+      const uciScore = index.uci_score;
+      
+      // UCI는 낮은데 (좋은 상태) 다른 신호들이 높은 경우
+      // 또는 UCI는 높은데 (나쁜 상태) 민원이 적은 경우
+      let riskLevel = 'low';
+      let reason = '';
+      
+      if (uciScore < 40 && humanValue > 10) {
+        riskLevel = 'high';
+        reason = '편의성 지수는 양호하나 민원이 많아 데이터 불일치 가능성';
+      } else if (uciScore > 60 && humanValue < 3) {
+        riskLevel = 'high';
+        reason = '편의성 지수가 높으나 민원이 적어 사각지대 가능성';
+      } else if (uciScore < 40 && geoValue > 0.7) {
+        riskLevel = 'medium';
+        reason = '편의성 지수는 양호하나 지리적 취약도가 높음';
+      }
+      
+      if (riskLevel !== 'low' && (!risk_level || risk_level === riskLevel)) {
+        const unit = await SpatialUnit.findById(index.unit_id);
+        const location = unit?.name || index.unit_id;
+        
+        blindSpots.push({
+          id: `bs_${index.unit_id}`,
+          location,
+          lat: unit?.geom?.coordinates?.[0]?.[0]?.[1] || 37.5665,
+          lng: unit?.geom?.coordinates?.[0]?.[0]?.[0] || 126.9780,
+          risk_level: riskLevel,
+          detection_reason: reason,
+          signals: {
+            human: {
+              value: humanValue,
+              status: humanValue < 5 ? 'low' : humanValue > 15 ? 'high' : 'normal'
+            },
+            geo: {
+              value: geoValue,
+              status: geoValue < 0.5 ? 'low' : geoValue > 0.7 ? 'high' : 'normal'
+            },
+            uci: {
+              value: uciScore,
+              status: uciScore < 40 ? 'low' : uciScore > 60 ? 'high' : 'normal'
+            }
+          },
+          recommended_action: '현장 점검 및 추가 모니터링 필요'
+        });
+      }
+    }
+    
+    res.json({
+      success: true,
+      count: blindSpots.length,
+      data: blindSpots
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: '사각지대 탐지 중 오류가 발생했습니다.',
       error: error.message
     });
   }
