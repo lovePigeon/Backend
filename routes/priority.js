@@ -82,27 +82,74 @@ router.get('/', async (req, res) => {
   try {
     const { date, top_n = 20 } = req.query;
 
-    const comfortIndices = await ComfortIndex.find({ date })
-      .sort({ uci_score: -1 })
-      .limit(parseInt(top_n));
+    // 날짜가 없거나 해당 날짜에 데이터가 없으면 최신 날짜 사용
+    let targetDate = date;
+    let comfortIndices = [];
 
-    const unitIds = comfortIndices.map(ci => ci.unit_id);
+    // 요청된 날짜로 먼저 조회
+    if (targetDate) {
+      comfortIndices = await ComfortIndex.find({ date: targetDate })
+        .sort({ uci_score: -1 })
+        .limit(parseInt(top_n));
+    }
+
+    // 해당 날짜에 데이터가 없으면 최신 날짜 조회
+    if (!targetDate || comfortIndices.length === 0) {
+      const latestComfortIndex = await ComfortIndex.findOne()
+        .sort({ date: -1 });
+      
+      if (latestComfortIndex) {
+        targetDate = latestComfortIndex.date;
+        comfortIndices = await ComfortIndex.find({ date: targetDate })
+          .sort({ uci_score: -1 })
+          .limit(parseInt(top_n));
+      }
+    }
+
+    // 데이터가 없으면 빈 배열 반환
+    if (comfortIndices.length === 0) {
+      console.log(`[Priority Queue] No data found. Requested date: ${date}, Target date: ${targetDate}`);
+      return res.json([]);
+    }
+
+    console.log(`[Priority Queue] Found ${comfortIndices.length} items for date: ${targetDate}`);
+
+    // unit_id 추출 및 units 조회
+    const unitIds = comfortIndices.map(ci => ci.unit_id).filter(id => id); // null/undefined 제거
+    
+    if (unitIds.length === 0) {
+      return res.json([]);
+    }
+
     const units = await SpatialUnit.find({ _id: { $in: unitIds } });
     const unitsMap = {};
-    units.forEach(u => { unitsMap[u._id] = u.name; });
+    units.forEach(u => { 
+      unitsMap[u._id] = u.name; 
+    });
 
-    const items = comfortIndices.map((ci, index) => ({
-      rank: index + 1,
-      unit_id: ci.unit_id,
-      name: unitsMap[ci.unit_id] || ci.unit_id,
-      uci_score: ci.uci_score,
-      uci_grade: ci.uci_grade,
-      why_summary: ci.explain?.why_summary || '',
-      key_drivers: ci.explain?.key_drivers || []
-    }));
+    // items 생성 (unit이 없어도 unit_id로 표시)
+    const items = comfortIndices
+      .filter(ci => ci.unit_id) // unit_id가 있는 것만
+      .map((ci, index) => ({
+        rank: index + 1,
+        unit_id: ci.unit_id,
+        name: unitsMap[ci.unit_id] || ci.unit_id,
+        uci_score: ci.uci_score,
+        uci_grade: ci.uci_grade,
+        why_summary: ci.explain?.why_summary || '',
+        key_drivers: ci.explain?.key_drivers || []
+      }));
 
+    // items가 비어있으면 빈 배열 반환
+    if (items.length === 0) {
+      console.log(`[Priority Queue] Items array is empty after processing. comfortIndices: ${comfortIndices.length}, units: ${units.length}`);
+      return res.json([]);
+    }
+
+    console.log(`[Priority Queue] Returning ${items.length} items`);
     res.json(items);
   } catch (error) {
+    console.error('Priority queue error:', error);
     res.status(500).json({
       success: false,
       message: 'Priority queue 조회 중 오류가 발생했습니다.',

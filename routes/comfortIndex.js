@@ -56,7 +56,18 @@ router.get('/', async (req, res) => {
   try {
     const { date, grade, top_k } = req.query;
 
-    const query = { date };
+    let query = {};
+    
+    // 날짜가 없으면 최신 날짜 사용
+    if (date) {
+      query.date = date;
+    } else {
+      const latest = await ComfortIndex.findOne().sort({ date: -1 });
+      if (latest) {
+        query.date = latest.date;
+      }
+    }
+
     if (grade) {
       query.uci_grade = grade;
     }

@@ -258,23 +258,30 @@ function generateExplain(humanData, geoData, popData, humanScore, geoScore, popS
   const drivers = [];
   const summaryParts = [];
 
-  if (humanScore && humanScore > 0.5 && humanData && humanData.length > 0) {
+  // Human 신호 분석 (조건 완화: humanScore > 0.5 제거, 데이터만 있으면 분석)
+  if (humanData && humanData.length > 0) {
     const totalSignals = humanData.filter(d => d.signal_type === 'total');
     const odorSignals = humanData.filter(d => d.signal_type === 'odor');
+    const trashSignals = humanData.filter(d => d.signal_type === 'trash');
     const nightRatioSignals = humanData.filter(d => d.signal_type === 'night_ratio');
+    const repeatRatioSignals = humanData.filter(d => d.signal_type === 'repeat_ratio');
     
     const total = totalSignals.reduce((sum, d) => sum + (d.value || 0), 0);
     const odor = odorSignals.reduce((sum, d) => sum + (d.value || 0), 0);
-    const nightRatios = nightRatioSignals.map(d => d.value);
+    const trash = trashSignals.reduce((sum, d) => sum + (d.value || 0), 0);
+    const nightRatios = nightRatioSignals.map(d => d.value).filter(v => v !== null && v !== undefined);
+    const repeatRatios = repeatRatioSignals.map(d => d.value).filter(v => v !== null && v !== undefined);
     const nightAvg = nightRatios.length > 0 ? nightRatios.reduce((a, b) => a + b, 0) / nightRatios.length : 0;
+    const repeatAvg = repeatRatios.length > 0 ? repeatRatios.reduce((a, b) => a + b, 0) / repeatRatios.length : 0;
 
-    // 베이스라인 비교 문구 추가
-    if (baseline) {
+    // 베이스라인 비교 문구 추가 (조건 완화)
+    if (baseline && total > 0) {
       const unitAvg = total / (windowWeeks * 7);
       const baselineAvg = baseline.citywide_avg_per_unit || (baseline.citywide_total / 37);
       const relativeRatio = baselineAvg > 0 ? (unitAvg / baselineAvg) : 1.0;
       
-      if (relativeRatio > 1.5) {
+      // 1.2배 이상이면 추가 (기존 1.5배에서 완화)
+      if (relativeRatio > 1.2) {
         summaryParts.push(`서울시 평균 대비 ${Math.round(relativeRatio * 10) / 10}배 높은 신고량`);
         drivers.push({ 
           signal: 'relative_to_baseline', 
@@ -282,7 +289,7 @@ function generateExplain(humanData, geoData, popData, humanScore, geoScore, popS
         });
       }
       
-      // 증가율 비교
+      // 증가율 비교 (조건 완화: 0.05 이상이면 추가)
       if (totalSignals.length >= 2) {
         const firstHalf = totalSignals.slice(0, Math.floor(totalSignals.length / 2));
         const secondHalf = totalSignals.slice(Math.floor(totalSignals.length / 2));
@@ -292,7 +299,7 @@ function generateExplain(humanData, geoData, popData, humanScore, geoScore, popS
         const baselineGrowthRate = baseline.growth_rate || 0;
         const excessGrowth = unitGrowthRate - baselineGrowthRate;
         
-        if (excessGrowth > 0.1) {
+        if (excessGrowth > 0.05) {  // 0.1에서 0.05로 완화
           summaryParts.push(`서울시 전체 증가율 대비 ${Math.round(excessGrowth * 100)}%p 높은 증가`);
           drivers.push({ 
             signal: 'excess_growth_rate', 
@@ -302,29 +309,54 @@ function generateExplain(humanData, geoData, popData, humanScore, geoScore, popS
       }
     }
 
-    if (odor > 0) {
-      summaryParts.push(`악취 민원 ${odor}건`);
-      drivers.push({ signal: 'complaint_odor', value: Math.round((odor / total) * 100) / 100 });
+    // 민원 유형별 분석 (조건 완화)
+    if (total > 0) {
+      if (odor > 0 && odor / total > 0.1) {  // 0.3에서 0.1로 완화
+        summaryParts.push(`악취 민원 ${odor}건`);
+        drivers.push({ signal: 'complaint_odor', value: Math.round((odor / total) * 100) / 100 });
+      }
+
+      if (trash > 0 && trash / total > 0.1) {  // 0.3에서 0.1로 완화
+        summaryParts.push(`쓰레기 민원 ${trash}건`);
+        drivers.push({ signal: 'complaint_trash', value: Math.round((trash / total) * 100) / 100 });
+      }
     }
 
-    if (nightAvg > 0.6) {
+    // 야간/반복 비율 분석 (조건 완화)
+    if (nightAvg > 0.4) {  // 0.6에서 0.4로 완화
       summaryParts.push(`야간 집중도 ${Math.round(nightAvg * 100)}%`);
       drivers.push({ signal: 'night_ratio', value: Math.round(nightAvg * 100) / 100 });
     }
-  }
 
-  if (geoScore && geoScore > 0.5 && geoData) {
-    if (geoData.alley_density && geoData.alley_density > 50) {
-      summaryParts.push('골목 밀도 상위');
-      drivers.push({ signal: 'alley_density', value: Math.round(geoData.alley_density * 100) / 100 });
+    if (repeatAvg > 0.3) {  // 0.5에서 0.3으로 완화
+      summaryParts.push(`반복 신고 비율 ${Math.round(repeatAvg * 100)}%`);
+      drivers.push({ signal: 'repeat_ratio', value: Math.round(repeatAvg * 100) / 100 });
+    }
+
+    // 총 민원 건수 (항상 추가)
+    if (total > 0) {
+      drivers.push({ signal: 'total_complaints', value: total });
     }
   }
 
-  if (popScore && popScore > 0.5 && popData && popData.length > 0) {
-    const changeRates = popData.filter(d => d.pop_change_rate !== null).map(d => d.pop_change_rate);
+  // Geo 신호 분석 (조건 완화)
+  if (geoData) {
+    if (geoData.alley_density && geoData.alley_density > 30) {  // 50에서 30으로 완화
+      summaryParts.push('골목 밀도 상위');
+      drivers.push({ signal: 'alley_density', value: Math.round(geoData.alley_density * 100) / 100 });
+    }
+
+    if (geoData.backroad_ratio && geoData.backroad_ratio > 0.3) {
+      drivers.push({ signal: 'backroad_ratio', value: Math.round(geoData.backroad_ratio * 100) / 100 });
+    }
+  }
+
+  // Population 신호 분석 (조건 완화)
+  if (popData && popData.length > 0) {
+    const changeRates = popData.filter(d => d.pop_change_rate !== null && d.pop_change_rate !== undefined).map(d => d.pop_change_rate);
     if (changeRates.length > 0) {
       const avgChange = changeRates.reduce((a, b) => a + b, 0) / changeRates.length;
-      if (avgChange > 0.1) {
+      if (avgChange > 0.05) {  // 0.1에서 0.05로 완화
         summaryParts.push(`생활인구 증가 ${Math.round(avgChange * 100)}%`);
         drivers.push({ signal: 'pop_change_rate', value: Math.round(avgChange * 100) / 100 });
       }
