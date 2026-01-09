@@ -7,84 +7,8 @@ import { subDays, format } from 'date-fns';
 
 const router = express.Router();
 
-/**
- * @swagger
- * /api/v1/action-cards/generate:
- *   post:
- *     summary: Action Cards 생성
- *     tags: [Action Cards]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               date:
- *                 type: string
- *                 format: date
- *                 example: "2026-01-08"
- *               unit_ids:
- *                 type: array
- *                 items:
- *                   type: string
- *               use_pigeon:
- *                 type: boolean
- *                 default: false
- *     responses:
- *       200:
- *         description: Action cards 생성 완료
- *         content:
- *           application/json:
- *             examples:
- *               cards:
- *                 value:
- *                   - card_id: "AC-11110515-2026-01-08"
- *                     unit_id: "11110515"
- *                     date: "2026-01-08"
- *                     title: "야간 악취 민원 급증: 야간/주말 집중 점검 권고"
- *                     why: "악취 민원 증가율이 높고(상위 5%), 야간 집중도가 높아 야간 배출/관리 공백 가능성이 큼"
- *                     recommended_actions:
- *                       - "야간(20~02시) 집중 청소/수거"
- *                       - "주말 민원 다발 시간대 순찰 강화"
- *                       - "반복 민원 지점 현장 기록 및 원인 분류"
- *                     tags:
- *                       - "night_spike"
- *                       - "odor"
- *                       - "needs_field_check"
- *                     confidence: 0.78
- *                     limitations:
- *                       - "이벤트/상권 영향 가능"
- *                       - "민원 데이터는 사후 신고 기반"
- */
-router.post('/generate', async (req, res) => {
-  try {
-    const { date, unit_ids, use_pigeon = false } = req.body;
-
-    const query = { date };
-    if (unit_ids && unit_ids.length > 0) {
-      query.unit_id = { $in: unit_ids };
-    }
-
-    const comfortIndices = await ComfortIndex.find(query).sort({ uci_score: -1 });
-    const cards = [];
-
-    for (const ci of comfortIndices) {
-      const card = await generateCardForUnit(ci, date, use_pigeon);
-      if (card) {
-        cards.push(card);
-      }
-    }
-
-    res.json(cards);
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Action cards 생성 중 오류가 발생했습니다.',
-      error: error.message
-    });
-  }
-});
+// POST /generate는 백엔드 내부용이므로 제거됨
+// 프론트엔드는 GET /api/v1/action-cards만 사용
 
 /**
  * @swagger

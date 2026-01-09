@@ -5,16 +5,13 @@ import swaggerUi from 'swagger-ui-express';
 import { swaggerSpec } from './config/swagger.js';
 import { connectDB } from './config/database.js';
 import healthRoutes from './routes/health.js';
-import unitsRoutes from './routes/units.js';
 import comfortIndexRoutes from './routes/comfortIndex.js';
 import priorityRoutes from './routes/priority.js';
 import actionCardsRoutes from './routes/actionCards.js';
-import interventionsRoutes from './routes/interventions.js';
 import geoRoutes from './routes/geo.js';
 import dataRoutes from './routes/data.js';
 import dataImportRoutes from './routes/dataImport.js';
 import dashboardRoutes from './routes/dashboard.js';
-import analyticsRoutes from './routes/analytics.js';
 
 dotenv.config();
 
@@ -35,18 +32,16 @@ app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
 // MongoDB 연결
 connectDB();
 
-// 라우트
+// 라우트 (프론트엔드 핵심 엔드포인트만)
 app.use('/api/v1', healthRoutes);
-app.use('/api/v1/units', unitsRoutes);
 app.use('/api/v1/comfort-index', comfortIndexRoutes);
 app.use('/api/v1/priority-queue', priorityRoutes);
 app.use('/api/v1/action-cards', actionCardsRoutes);
-app.use('/api/v1/interventions', interventionsRoutes);
 app.use('/api/v1/geo', geoRoutes);
 app.use('/api/v1/data', dataRoutes);
 app.use('/api/v1/data', dataImportRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
-app.use('/api/v1/analytics', analyticsRoutes);
+// interventions는 dashboard/interventions로 통합되어 있음
 
 // 루트
 /**
@@ -70,9 +65,7 @@ app.get('/', (req, res) => {
       comfort_index: '/api/v1/comfort-index',
       priority_queue: '/api/v1/priority-queue',
       action_cards: '/api/v1/action-cards',
-      interventions: '/api/v1/interventions',
-      geo: '/api/v1/geo',
-      analytics: '/api/v1/analytics'
+      geo: '/api/v1/geo'
     }
   });
 });

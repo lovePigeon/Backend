@@ -9,88 +9,8 @@ import { format, subDays, subWeeks, subMonths, startOfDay, endOfDay, startOfQuar
 
 const router = express.Router();
 
-/**
- * @swagger
- * /api/v1/dashboard/summary:
- *   get:
- *     summary: 데이터 요약 조회
- *     tags: [Dashboard]
- *     parameters:
- *       - in: query
- *         name: date
- *         schema:
- *           type: string
- *           format: date
- *       - in: query
- *         name: unit_id
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: 데이터 요약
- *         content:
- *           application/json:
- *             examples:
- *               summary:
- *                 value:
- *                   success: true
- *                   date: "2026-01-08"
- *                   unit_id: "all"
- *                   summary:
- *                     human_signal:
- *                       total_complaints: 150
- *                       by_type:
- *                         odor: 50
- *                         trash: 80
- *                         illegal_dump: 20
- *                       average_night_ratio: 0.65
- *                       average_repeat_ratio: 0.45
- *                     geo_signal:
- *                       count: 50
- *                       average_vulnerability: 0.6
- *                     population_signal:
- *                       total_population: 100000
- *                       night_population: 20000
- *                       night_ratio: 0.2
- *                     uci:
- *                       average_score: 65.5
- *                       grade_distribution:
- *                         A: 5
- *                         B: 10
- *                         C: 15
- *                         D: 12
- *                         E: 8
- */
-router.get('/summary', async (req, res) => {
-  try {
-    const { date, unit_id } = req.query;
-    const targetDate = date ? new Date(date) : new Date();
-
-    // 기본 통계
-    const humanStats = await getHumanSignalSummary(targetDate, unit_id);
-    const geoStats = await getGeoSignalSummary(unit_id);
-    const popStats = await getPopulationSignalSummary(targetDate, unit_id);
-    const uciStats = await getUCIStats(targetDate, unit_id);
-
-    res.json({
-      success: true,
-      date: format(targetDate, 'yyyy-MM-dd'),
-      unit_id: unit_id || 'all',
-      summary: {
-        human_signal: humanStats,
-        geo_signal: geoStats,
-        population_signal: popStats,
-        uci: uciStats
-      }
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: '데이터 요약 조회 중 오류가 발생했습니다.',
-      error: error.message
-    });
-  }
-});
+// GET /summary는 보조 기능이므로 제거됨
+// 프론트엔드는 개별 엔드포인트(human-signal, population-signal, uci 등)를 사용
 
 /**
  * @swagger
@@ -238,66 +158,8 @@ router.get('/human-signal', async (req, res) => {
   }
 });
 
-/**
- * @swagger
- * /api/v1/dashboard/geo-signal:
- *   get:
- *     summary: 지리 공간 데이터 조회
- *     tags: [Dashboard]
- *     parameters:
- *       - in: query
- *         name: unit_id
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: 지리 공간 데이터
- *         content:
- *           application/json:
- *             examples:
- *               geoSignal:
- *                 value:
- *                   success: true
- *                   count: 1
- *                   data:
- *                     - unit_id: "11110515"
- *                       alley_density: 65.5
- *                       backroad_ratio: 0.6
- *                       ventilation_proxy: 5.2
- *                       accessibility_proxy: 4.1
- *                       landuse_mix: 0.5
- *                       vulnerability_score: 0.65
- */
-router.get('/geo-signal', async (req, res) => {
-  try {
-    const { unit_id } = req.query;
-
-    const query = unit_id ? { _id: unit_id } : {};
-    const signals = await SignalGeo.find(query);
-
-    const summary = signals.map(s => ({
-      unit_id: s._id,
-      alley_density: s.alley_density,
-      backroad_ratio: s.backroad_ratio,
-      ventilation_proxy: s.ventilation_proxy,
-      accessibility_proxy: s.accessibility_proxy,
-      landuse_mix: s.landuse_mix,
-      vulnerability_score: calculateVulnerabilityScore(s)
-    }));
-
-    res.json({
-      success: true,
-      count: signals.length,
-      data: summary
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: '지리 공간 데이터 조회 중 오류가 발생했습니다.',
-      error: error.message
-    });
-  }
-});
+// GET /geo-signal은 보조 기능이므로 제거됨
+// 프론트엔드는 다른 엔드포인트를 통해 지리 정보를 조회
 
 /**
  * @swagger
