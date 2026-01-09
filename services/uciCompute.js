@@ -3,6 +3,7 @@ import SignalGeo from '../models/SignalGeo.js';
 import SignalPopulation from '../models/SignalPopulation.js';
 import ComfortIndex from '../models/ComfortIndex.js';
 import SpatialUnit from '../models/SpatialUnit.js';
+import BaselineMetric from '../models/BaselineMetric.js';
 import { settings } from '../config/settings.js';
 import { subDays, format, parseISO } from 'date-fns';
 
@@ -26,8 +27,8 @@ export async function computeUCIForUnit(unitId, date, windowWeeks = 4, usePigeon
     date: { $gte: startDateStr, $lte: endDate }
   }).sort({ date: 1 });
 
-  // 컴포넌트 점수 계산
-  const { score: humanScore, normalized: humanNorm } = computeHumanScore(humanData, windowDays);
+  // 컴포넌트 점수 계산 (베이스라인 보정 포함)
+  const { score: humanScore, normalized: humanNorm, baseline: humanBaseline } = await computeHumanScore(humanData, windowDays, endDate);
   const { score: geoScore, normalized: geoNorm } = computeGeoScore(geoData);
   const { score: popScore, normalized: popNorm } = computePopulationScore(popData, windowDays);
 
@@ -71,8 +72,8 @@ export async function computeUCIForUnit(unitId, date, windowWeeks = 4, usePigeon
   const uciScore = scores.reduce((sum, score, i) => sum + score * normalizedWeights[i], 0) * 100;
   const uciGrade = getGrade(uciScore);
 
-  // 설명 생성
-  const explain = generateExplain(humanData, geoData, popData, humanScore, geoScore, popScore, windowWeeks);
+  // 설명 생성 (베이스라인 정보 포함)
+  const explain = generateExplain(humanData, geoData, popData, humanScore, geoScore, popScore, windowWeeks, humanBaseline);
 
   return {
     unit_id: unitId,
@@ -94,7 +95,7 @@ export async function computeUCIForUnit(unitId, date, windowWeeks = 4, usePigeon
   };
 }
 
-function computeHumanScore(data, windowDays) {
+async function computeHumanScore(data, windowDays, targetDate = null) {
   if (!data || data.length === 0) return { score: null, normalized: {} };
 
   // signal_type별로 데이터 분리
@@ -116,14 +117,41 @@ function computeHumanScore(data, windowDays) {
   const avgNightRatio = nightRatios.length > 0 ? nightRatios.reduce((a, b) => a + b, 0) / nightRatios.length : 0;
   const avgRepeatRatio = repeatRatios.length > 0 ? repeatRatios.reduce((a, b) => a + b, 0) / repeatRatios.length : 0;
 
-  // 증가율 계산
-  let growthRate = 0;
+  // 지역 내부 증가율 계산
+  let unitGrowthRate = 0;
   if (totalSignals.length >= 2) {
     const firstHalf = totalSignals.slice(0, Math.floor(totalSignals.length / 2));
     const secondHalf = totalSignals.slice(Math.floor(totalSignals.length / 2));
     const firstTotal = firstHalf.reduce((sum, d) => sum + (d.value || 0), 0);
     const secondTotal = secondHalf.reduce((sum, d) => sum + (d.value || 0), 0);
-    growthRate = firstTotal > 0 ? (secondTotal - firstTotal) / firstTotal : 0;
+    unitGrowthRate = firstTotal > 0 ? (secondTotal - firstTotal) / firstTotal : 0;
+  }
+
+  // 베이스라인 조회 (선택적, targetDate가 있으면)
+  let baselineData = null;
+  let relativeToBaseline = 1.0;
+  let excessGrowthRate = 0;
+  
+  if (targetDate) {
+    const period = format(parseISO(targetDate), 'yyyy-MM');
+    baselineData = await BaselineMetric.findOne({ 
+      period, 
+      category: '전체' 
+    });
+    
+    if (baselineData) {
+      // 단위당 평균 계산
+      const unitAvgComplaints = totalComplaints / windowDays;
+      const baselineAvg = baselineData.citywide_avg_per_unit || (baselineData.citywide_total / 37);
+      
+      if (baselineAvg > 0) {
+        relativeToBaseline = Math.min(3.0, unitAvgComplaints / baselineAvg); // 최대 3배로 제한
+      }
+      
+      // 초과 증가율 계산
+      const baselineGrowthRate = baselineData.growth_rate || 0;
+      excessGrowthRate = Math.max(0, unitGrowthRate - baselineGrowthRate);
+    }
   }
 
   const normalized = {
@@ -133,19 +161,32 @@ function computeHumanScore(data, windowDays) {
     illegal_dump_ratio: totalComplaints > 0 ? illegalDump / totalComplaints : 0,
     night_ratio: avgNightRatio,
     repeat_ratio: avgRepeatRatio,
-    growth_rate: Math.min(1.0, Math.max(0, growthRate) / 0.5)
+    growth_rate: Math.min(1.0, Math.max(0, unitGrowthRate) / 0.5),
+    // 베이스라인 보정 지표 (신규)
+    relative_to_baseline: relativeToBaseline,
+    excess_growth_rate: Math.min(1.0, excessGrowthRate / 0.3) // 30%p 초과 = 1.0
   };
 
+  // 가중치 재조정 (베이스라인 보정 추가)
   const humanScore = (
-    normalized.total_complaints * 0.2 +
-    normalized.odor_ratio * 0.2 +
-    normalized.trash_ratio * 0.15 +
-    normalized.illegal_dump_ratio * 0.15 +
-    normalized.night_ratio * 0.15 +
-    normalized.repeat_ratio * 0.15
+    normalized.total_complaints * 0.15 +           // 절대값 (가중치 감소)
+    normalized.relative_to_baseline * 0.20 +       // 베이스라인 대비 (신규)
+    normalized.excess_growth_rate * 0.15 +          // 초과 증가율 (신규)
+    normalized.odor_ratio * 0.15 +                  // 기존 (가중치 감소)
+    normalized.trash_ratio * 0.12 +                 // 기존 (가중치 감소)
+    normalized.illegal_dump_ratio * 0.12 +         // 기존 (가중치 감소)
+    normalized.night_ratio * 0.11                   // 기존 (가중치 감소)
   );
 
-  return { score: humanScore, normalized };
+  return { 
+    score: humanScore, 
+    normalized,
+    baseline: baselineData ? {
+      period: baselineData.period,
+      citywide_total: baselineData.citywide_total,
+      growth_rate: baselineData.growth_rate
+    } : null
+  };
 }
 
 function computeGeoScore(data) {
@@ -213,7 +254,7 @@ function getGrade(score) {
   return 'E';
 }
 
-function generateExplain(humanData, geoData, popData, humanScore, geoScore, popScore, windowWeeks) {
+function generateExplain(humanData, geoData, popData, humanScore, geoScore, popScore, windowWeeks, baseline = null) {
   const drivers = [];
   const summaryParts = [];
 
@@ -226,6 +267,40 @@ function generateExplain(humanData, geoData, popData, humanScore, geoScore, popS
     const odor = odorSignals.reduce((sum, d) => sum + (d.value || 0), 0);
     const nightRatios = nightRatioSignals.map(d => d.value);
     const nightAvg = nightRatios.length > 0 ? nightRatios.reduce((a, b) => a + b, 0) / nightRatios.length : 0;
+
+    // 베이스라인 비교 문구 추가
+    if (baseline) {
+      const unitAvg = total / (windowWeeks * 7);
+      const baselineAvg = baseline.citywide_avg_per_unit || (baseline.citywide_total / 37);
+      const relativeRatio = baselineAvg > 0 ? (unitAvg / baselineAvg) : 1.0;
+      
+      if (relativeRatio > 1.5) {
+        summaryParts.push(`서울시 평균 대비 ${Math.round(relativeRatio * 10) / 10}배 높은 신고량`);
+        drivers.push({ 
+          signal: 'relative_to_baseline', 
+          value: Math.round(relativeRatio * 100) / 100 
+        });
+      }
+      
+      // 증가율 비교
+      if (totalSignals.length >= 2) {
+        const firstHalf = totalSignals.slice(0, Math.floor(totalSignals.length / 2));
+        const secondHalf = totalSignals.slice(Math.floor(totalSignals.length / 2));
+        const firstTotal = firstHalf.reduce((sum, d) => sum + (d.value || 0), 0);
+        const secondTotal = secondHalf.reduce((sum, d) => sum + (d.value || 0), 0);
+        const unitGrowthRate = firstTotal > 0 ? (secondTotal - firstTotal) / firstTotal : 0;
+        const baselineGrowthRate = baseline.growth_rate || 0;
+        const excessGrowth = unitGrowthRate - baselineGrowthRate;
+        
+        if (excessGrowth > 0.1) {
+          summaryParts.push(`서울시 전체 증가율 대비 ${Math.round(excessGrowth * 100)}%p 높은 증가`);
+          drivers.push({ 
+            signal: 'excess_growth_rate', 
+            value: Math.round(excessGrowth * 100) / 100 
+          });
+        }
+      }
+    }
 
     if (odor > 0) {
       summaryParts.push(`악취 민원 ${odor}건`);
@@ -256,11 +331,17 @@ function generateExplain(humanData, geoData, popData, humanScore, geoScore, popS
     }
   }
 
-  const whySummary = summaryParts.length > 0 ? summaryParts.join(', ') : `최근 ${windowWeeks}주간 신호 분석`;
+  const whySummary = summaryParts.length > 0 
+    ? summaryParts.join(', ') 
+    : `최근 ${windowWeeks}주간 신호 분석`;
 
   return {
     why_summary: whySummary,
-    key_drivers: drivers
+    key_drivers: drivers,
+    baseline_reference: baseline ? {
+      period: baseline.period,
+      citywide_total: baseline.citywide_total
+    } : null
   };
 }
 

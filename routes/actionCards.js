@@ -3,7 +3,8 @@ import ComfortIndex from '../models/ComfortIndex.js';
 import SignalHuman from '../models/SignalHuman.js';
 import SignalGeo from '../models/SignalGeo.js';
 import SignalPopulation from '../models/SignalPopulation.js';
-import { subDays, format } from 'date-fns';
+import BaselineMetric from '../models/BaselineMetric.js';
+import { subDays, format, parseISO } from 'date-fns';
 
 const router = express.Router();
 
@@ -189,9 +190,50 @@ async function generateCardForUnit(comfortIndex, date, usePigeon) {
     ? titleParts.slice(0, 2).join(': ') + ' - 집중 점검 권고'
     : `UCI 점수 ${comfortIndex.uci_score.toFixed(1)}점: 모니터링 권고`;
 
-  const why = whyParts.length > 0
-    ? whyParts.join('. ')
+  // 베이스라인 비교 문구 추가
+  const baselineParts = [];
+  try {
+    const period = format(parseISO(date), 'yyyy-MM');
+    const baseline = await BaselineMetric.findOne({ period, category: '전체' });
+    
+    if (baseline && humanData && humanData.length > 0) {
+      const totalSignals = humanData.filter(d => d.signal_type === 'total');
+      const total = totalSignals.reduce((sum, d) => sum + (d.value || 0), 0);
+      const unitAvg = total / 28; // 4주 기준
+      const baselineAvg = baseline.citywide_avg_per_unit || (baseline.citywide_total / 37);
+      const relativeRatio = baselineAvg > 0 ? (unitAvg / baselineAvg) : 1.0;
+      
+      if (relativeRatio > 1.3) {
+        baselineParts.push(`동일 분야의 서울시 평균 대비 ${Math.round(relativeRatio * 10) / 10}배 높은 신고량`);
+      }
+      
+      // 증가율 비교
+      if (totalSignals.length >= 2) {
+        const firstHalf = totalSignals.slice(0, Math.floor(totalSignals.length / 2));
+        const secondHalf = totalSignals.slice(Math.floor(totalSignals.length / 2));
+        const firstTotal = firstHalf.reduce((sum, d) => sum + (d.value || 0), 0);
+        const secondTotal = secondHalf.reduce((sum, d) => sum + (d.value || 0), 0);
+        const unitGrowthRate = firstTotal > 0 ? (secondTotal - firstTotal) / firstTotal : 0;
+        const baselineGrowthRate = baseline.growth_rate || 0;
+        const excessGrowth = unitGrowthRate - baselineGrowthRate;
+        
+        if (excessGrowth > 0.1) {
+          baselineParts.push(`최근 2개월 신고 증가율이 서울시 전체 대비 ${Math.round(excessGrowth * 100)}%p 높음`);
+        }
+      }
+    }
+  } catch (error) {
+    // 베이스라인 조회 실패해도 계속 진행
+  }
+  
+  const why = whyParts.length > 0 || baselineParts.length > 0
+    ? [...whyParts, ...baselineParts].join('. ')
     : `UCI 점수 ${comfortIndex.uci_score.toFixed(1)}점으로 우선순위 높음`;
+  
+  if (baselineParts.length > 0) {
+    whyParts.push(...baselineParts);
+    limitations.push('서울시 전체 평균 대비 상대적 비교 기준 사용');
+  }
 
   const confidence = Math.min(0.9, 0.5 + (comfortIndex.uci_score / 100) * 0.3);
   const uniqueActions = [...new Set(actions)].slice(0, 5);

@@ -10,6 +10,7 @@
     "seed": "node scripts/seed_demo_data.js",
     "test": "jest",
     "etl": "node scripts/etl_human_signals.js",
+    "etl-baseline": "node scripts/etl_baseline_metrics.js",
     "compute-uci": "node scripts/compute_comfort_index.js",
     "priority": "node scripts/generate_priority_queue.js",
     "blind-spots": "node scripts/generate_blind_spots.js",
@@ -34,7 +35,8 @@
     "mongoose": "^8.0.1",
     "multer": "^1.4.5-lts.1",
     "swagger-jsdoc": "^6.2.8",
-    "swagger-ui-express": "^5.0.1"
+    "swagger-ui-express": "^5.0.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "jest": "^29.7.0",
