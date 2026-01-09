@@ -12,6 +12,7 @@ import geoRoutes from './routes/geo.js';
 import dataRoutes from './routes/data.js';
 import dataImportRoutes from './routes/dataImport.js';
 import dashboardRoutes from './routes/dashboard.js';
+import interventionsRoutes from './routes/interventions.js';
 
 dotenv.config();
 
@@ -41,7 +42,7 @@ app.use('/api/v1/geo', geoRoutes);
 app.use('/api/v1/data', dataRoutes);
 app.use('/api/v1/data', dataImportRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
-// interventions는 dashboard/interventions로 통합되어 있음
+app.use('/api/v1/interventions', interventionsRoutes); // POST로 조치 등록
 
 // 루트
 /**

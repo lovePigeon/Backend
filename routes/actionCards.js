@@ -91,7 +91,7 @@ async function generateCardForUnit(comfortIndex, date, usePigeon) {
   const humanData = await SignalHuman.find({
     unit_id: unitId,
     date: { $gte: startDate, $lte: date }
-  }).sort({ date: -1 }).limit(28);
+  }).sort({ date: -1 }).limit(200); // signal_type별로 분리되어 더 많은 데이터 필요
 
   const geoData = await SignalGeo.findById(unitId);
   
@@ -107,13 +107,19 @@ async function generateCardForUnit(comfortIndex, date, usePigeon) {
   const tags = [];
   const limitations = ['민원 데이터는 사후 신고 기반'];
 
-  // Human 신호 분석
+  // Human 신호 분석 (signal_type별로 분리)
   if (humanData && humanData.length > 0) {
-    const total = humanData.reduce((sum, d) => sum + (d.complaint_total || 0), 0);
-    const odor = humanData.reduce((sum, d) => sum + (d.complaint_odor || 0), 0);
-    const trash = humanData.reduce((sum, d) => sum + (d.complaint_trash || 0), 0);
-    const nightRatios = humanData.filter(d => d.night_ratio !== null).map(d => d.night_ratio);
-    const repeatRatios = humanData.filter(d => d.repeat_ratio !== null).map(d => d.repeat_ratio);
+    const totalSignals = humanData.filter(d => d.signal_type === 'total');
+    const odorSignals = humanData.filter(d => d.signal_type === 'odor');
+    const trashSignals = humanData.filter(d => d.signal_type === 'trash');
+    const nightRatioSignals = humanData.filter(d => d.signal_type === 'night_ratio');
+    const repeatRatioSignals = humanData.filter(d => d.signal_type === 'repeat_ratio');
+    
+    const total = totalSignals.reduce((sum, d) => sum + (d.value || 0), 0);
+    const odor = odorSignals.reduce((sum, d) => sum + (d.value || 0), 0);
+    const trash = trashSignals.reduce((sum, d) => sum + (d.value || 0), 0);
+    const nightRatios = nightRatioSignals.map(d => d.value).filter(v => v !== null && v !== undefined);
+    const repeatRatios = repeatRatioSignals.map(d => d.value).filter(v => v !== null && v !== undefined);
 
     const avgNight = nightRatios.length > 0 ? nightRatios.reduce((a, b) => a + b, 0) / nightRatios.length : 0;
     const avgRepeat = repeatRatios.length > 0 ? repeatRatios.reduce((a, b) => a + b, 0) / repeatRatios.length : 0;

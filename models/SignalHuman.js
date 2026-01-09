@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 
+// signal_type별로 분리된 구조
 const SignalHumanSchema = new mongoose.Schema({
   unit_id: {
     type: String,
@@ -11,38 +12,36 @@ const SignalHumanSchema = new mongoose.Schema({
     required: true,
     index: true
   },
-  complaint_total: {
-    type: Number,
-    required: true,
-    min: 0
-  },
-  complaint_odor: Number,
-  complaint_trash: Number,
-  complaint_illegal_dump: Number,
-  night_ratio: {
-    type: Number,
-    min: 0,
-    max: 1
-  },
-  repeat_ratio: {
-    type: Number,
-    min: 0,
-    max: 1
-  },
-  source: {
+  signal_type: {
     type: String,
+    required: true,
+    enum: ['total', 'odor', 'trash', 'illegal_dumping', 'night_ratio', 'repeat_ratio', 'other'],
+    index: true
+  },
+  value: {
+    type: Number,
     required: true
   },
-  raw: {
-    type: Map,
-    of: mongoose.Schema.Types.Mixed,
-    default: {}
+  meta: {
+    source: {
+      type: String,
+      default: 'csv_import'
+    },
+    category: String,
+    raw: {
+      type: Map,
+      of: mongoose.Schema.Types.Mixed,
+      default: {}
+    }
   }
 }, {
-  collection: 'signals_human'
+  collection: 'signals_human',
+  timestamps: true
 });
 
-SignalHumanSchema.index({ unit_id: 1, date: 1 }, { unique: true });
+// unit_id, date, signal_type 조합이 unique하도록
+SignalHumanSchema.index({ unit_id: 1, date: 1, signal_type: 1 }, { unique: true });
+SignalHumanSchema.index({ unit_id: 1, date: 1 });
+SignalHumanSchema.index({ signal_type: 1, date: 1 });
 
 export default mongoose.model('SignalHuman', SignalHumanSchema);
-

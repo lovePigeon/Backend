@@ -97,24 +97,32 @@ export async function computeUCIForUnit(unitId, date, windowWeeks = 4, usePigeon
 function computeHumanScore(data, windowDays) {
   if (!data || data.length === 0) return { score: null, normalized: {} };
 
-  const totalComplaints = data.reduce((sum, d) => sum + (d.complaint_total || 0), 0);
-  const odorComplaints = data.reduce((sum, d) => sum + (d.complaint_odor || 0), 0);
-  const trashComplaints = data.reduce((sum, d) => sum + (d.complaint_trash || 0), 0);
-  const illegalDump = data.reduce((sum, d) => sum + (d.complaint_illegal_dump || 0), 0);
+  // signal_type별로 데이터 분리
+  const totalSignals = data.filter(d => d.signal_type === 'total');
+  const odorSignals = data.filter(d => d.signal_type === 'odor');
+  const trashSignals = data.filter(d => d.signal_type === 'trash');
+  const illegalSignals = data.filter(d => d.signal_type === 'illegal_dumping');
+  const nightRatioSignals = data.filter(d => d.signal_type === 'night_ratio');
+  const repeatRatioSignals = data.filter(d => d.signal_type === 'repeat_ratio');
 
-  const nightRatios = data.filter(d => d.night_ratio !== null && d.night_ratio !== undefined).map(d => d.night_ratio);
-  const repeatRatios = data.filter(d => d.repeat_ratio !== null && d.repeat_ratio !== undefined).map(d => d.repeat_ratio);
+  const totalComplaints = totalSignals.reduce((sum, d) => sum + (d.value || 0), 0);
+  const odorComplaints = odorSignals.reduce((sum, d) => sum + (d.value || 0), 0);
+  const trashComplaints = trashSignals.reduce((sum, d) => sum + (d.value || 0), 0);
+  const illegalDump = illegalSignals.reduce((sum, d) => sum + (d.value || 0), 0);
+
+  const nightRatios = nightRatioSignals.map(d => d.value).filter(v => v !== null && v !== undefined);
+  const repeatRatios = repeatRatioSignals.map(d => d.value).filter(v => v !== null && v !== undefined);
 
   const avgNightRatio = nightRatios.length > 0 ? nightRatios.reduce((a, b) => a + b, 0) / nightRatios.length : 0;
   const avgRepeatRatio = repeatRatios.length > 0 ? repeatRatios.reduce((a, b) => a + b, 0) / repeatRatios.length : 0;
 
   // 증가율 계산
   let growthRate = 0;
-  if (data.length >= 2) {
-    const firstHalf = data.slice(0, Math.floor(data.length / 2));
-    const secondHalf = data.slice(Math.floor(data.length / 2));
-    const firstTotal = firstHalf.reduce((sum, d) => sum + (d.complaint_total || 0), 0);
-    const secondTotal = secondHalf.reduce((sum, d) => sum + (d.complaint_total || 0), 0);
+  if (totalSignals.length >= 2) {
+    const firstHalf = totalSignals.slice(0, Math.floor(totalSignals.length / 2));
+    const secondHalf = totalSignals.slice(Math.floor(totalSignals.length / 2));
+    const firstTotal = firstHalf.reduce((sum, d) => sum + (d.value || 0), 0);
+    const secondTotal = secondHalf.reduce((sum, d) => sum + (d.value || 0), 0);
     growthRate = firstTotal > 0 ? (secondTotal - firstTotal) / firstTotal : 0;
   }
 
@@ -210,9 +218,13 @@ function generateExplain(humanData, geoData, popData, humanScore, geoScore, popS
   const summaryParts = [];
 
   if (humanScore && humanScore > 0.5 && humanData && humanData.length > 0) {
-    const total = humanData.reduce((sum, d) => sum + (d.complaint_total || 0), 0);
-    const odor = humanData.reduce((sum, d) => sum + (d.complaint_odor || 0), 0);
-    const nightRatios = humanData.filter(d => d.night_ratio !== null).map(d => d.night_ratio);
+    const totalSignals = humanData.filter(d => d.signal_type === 'total');
+    const odorSignals = humanData.filter(d => d.signal_type === 'odor');
+    const nightRatioSignals = humanData.filter(d => d.signal_type === 'night_ratio');
+    
+    const total = totalSignals.reduce((sum, d) => sum + (d.value || 0), 0);
+    const odor = odorSignals.reduce((sum, d) => sum + (d.value || 0), 0);
+    const nightRatios = nightRatioSignals.map(d => d.value);
     const nightAvg = nightRatios.length > 0 ? nightRatios.reduce((a, b) => a + b, 0) / nightRatios.length : 0;
 
     if (odor > 0) {
