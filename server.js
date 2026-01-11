@@ -14,6 +14,7 @@ import dataImportRoutes from './routes/dataImport.js';
 import dashboardRoutes from './routes/dashboard.js';
 import interventionsRoutes from './routes/interventions.js';
 import uciInfoRoutes from './routes/uciInfo.js';
+import anomalyRoutes from './routes/anomaly.js';
 
 dotenv.config();
 
@@ -45,6 +46,7 @@ app.use('/api/v1/data', dataImportRoutes);
 app.use('/api/v1/dashboard', dashboardRoutes);
 app.use('/api/v1/interventions', interventionsRoutes); // POST로 조치 등록
 app.use('/api/v1/uci-info', uciInfoRoutes); // UCI 계산 로직 설명
+app.use('/api/v1/anomaly', anomalyRoutes); // AI 이상 탐지
 
 // 루트
 /**
@@ -69,7 +71,8 @@ app.get('/', (req, res) => {
       priority_queue: '/api/v1/priority-queue',
       action_cards: '/api/v1/action-cards',
       geo: '/api/v1/geo',
-      uci_info: '/api/v1/uci-info'
+      uci_info: '/api/v1/uci-info',
+      anomaly: '/api/v1/anomaly'
     }
   });
 });

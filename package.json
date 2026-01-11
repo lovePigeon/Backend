@@ -18,6 +18,7 @@
     "etl-district": "node scripts/etl_district_complaints.js",
     "update-names": "node scripts/update_spatial_unit_names.js",
     "compute-uci": "node scripts/compute_comfort_index.js",
+    "compute-anomaly": "node scripts/compute_anomaly_scores.js",
     "priority": "node scripts/generate_priority_queue.js",
     "blind-spots": "node scripts/generate_blind_spots.js",
     "pipeline": "node scripts/run_etl_pipeline.js"
