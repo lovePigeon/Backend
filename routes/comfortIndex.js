@@ -1,6 +1,7 @@
 import express from 'express';
 import ComfortIndex from '../models/ComfortIndex.js';
 import SpatialUnit from '../models/SpatialUnit.js';
+import AnomalySignal from '../models/AnomalySignal.js';
 import { computeUCIForUnit } from '../services/uciCompute.js';
 import { settings } from '../config/settings.js';
 
@@ -156,7 +157,22 @@ router.get('/:unit_id', async (req, res) => {
       });
     }
 
-    res.json(result);
+    // AI 이상 탐지 정보 추가
+    const anomalySignal = await AnomalySignal.findOne({
+      unit_id,
+      date: result.date
+    }).lean();
+
+    const response = result.toObject ? result.toObject() : result;
+    if (anomalySignal) {
+      response.anomaly = {
+        anomaly_score: anomalySignal.anomaly_score,
+        anomaly_flag: anomalySignal.anomaly_flag,
+        explanation: anomalySignal.explanation
+      };
+    }
+
+    res.json(response);
   } catch (error) {
     res.status(500).json({
       success: false,

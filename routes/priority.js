@@ -2,6 +2,7 @@ import express from 'express';
 import ComfortIndex from '../models/ComfortIndex.js';
 import SpatialUnit from '../models/SpatialUnit.js';
 import SignalGeo from '../models/SignalGeo.js';
+import AnomalySignal from '../models/AnomalySignal.js';
 
 const router = express.Router();
 
@@ -111,6 +112,15 @@ function getDistrictName(unitId) {
  *                   habitual_dumping_risk:
  *                     type: number
  *                     description: 상습 무단투기 위험도 (0-1)
+ *                   anomaly_score:
+ *                     type: number
+ *                     description: AI 이상 탐지 점수 (0-1, 높을수록 이상)
+ *                   anomaly_flag:
+ *                     type: boolean
+ *                     description: AI 이상 탐지 플래그 (true면 급격한 악화 신호)
+ *                   anomaly_explanation:
+ *                     type: string
+ *                     description: AI 이상 탐지 설명
  *             examples:
  *               priorityQueue:
  *                 value:
@@ -129,6 +139,9 @@ function getDistrictName(unitId) {
  *                       - signal: "relative_to_baseline"
  *                         value: 1.2
  *                     habitual_dumping_risk: 0.75
+ *                     anomaly_score: 0.85
+ *                     anomaly_flag: true
+ *                     anomaly_explanation: "최근 4주 민원이 45% 증가, 통계적 이상치 감지 (Z-score: 3.2) - 급격한 악화 신호"
  *                   - rank: 2
  *                     unit_id: "11110540"
  *                     name: "종로동"
@@ -142,6 +155,9 @@ function getDistrictName(unitId) {
  *                       - signal: "total_complaints"
  *                         value: 850
  *                     habitual_dumping_risk: null
+ *                     anomaly_score: null
+ *                     anomaly_flag: false
+ *                     anomaly_explanation: null
  *                   - rank: 3
  *                     unit_id: "11110"
  *                     name: "종로구"
@@ -215,13 +231,55 @@ router.get('/', async (req, res) => {
       geoMap[geo._id] = geo;
     });
 
+    // AI 이상 탐지 정보 조회
+    const anomalySignals = await AnomalySignal.find({ 
+      unit_id: { $in: unitIds },
+      date: targetDate
+    }).lean();
+    const anomalyMap = {};
+    anomalySignals.forEach(anomaly => {
+      anomalyMap[anomaly.unit_id] = anomaly;
+    });
+
     // items 생성 (unit이 없어도 unit_id로 표시)
-    const items = comfortIndices
+    // AI 이상 탐지 결과를 반영하여 우선순위 부스팅
+    const itemsWithAnomaly = comfortIndices
       .filter(ci => ci.unit_id) // unit_id가 있는 것만
-      .map((ci, index) => {
+      .map((ci) => {
         // 상습지역 정보 확인
         const geoSignal = geoMap[ci.unit_id];
         const isHabitualArea = geoSignal && geoSignal.habitual_dumping_risk > 0.5;
+        
+        // AI 이상 탐지 정보 확인
+        const anomalySignal = anomalyMap[ci.unit_id];
+        const hasAnomaly = anomalySignal && anomalySignal.anomaly_flag === true;
+        
+        // 우선순위 부스팅: anomaly_flag가 true면 UCI 점수에 가산점 부여
+        // (UCI 점수가 높을수록 우선순위가 높으므로, anomaly가 있으면 점수를 높임)
+        let boostedUciScore = ci.uci_score;
+        if (hasAnomaly && anomalySignal.anomaly_score > 0.7) {
+          // anomaly_score가 높을수록 더 큰 가산점 (최대 10점)
+          const boostAmount = anomalySignal.anomaly_score * 10;
+          boostedUciScore = Math.min(100, ci.uci_score + boostAmount);
+        }
+        
+        return {
+          ...ci,
+          boostedUciScore,
+          anomalySignal
+        };
+      });
+    
+    // 부스팅된 UCI 점수로 재정렬
+    itemsWithAnomaly.sort((a, b) => b.boostedUciScore - a.boostedUciScore);
+    
+    const items = itemsWithAnomaly
+      .slice(0, parseInt(top_n)) // top_n만큼만 선택
+      .map((ci, index) => {
+        const geoSignal = geoMap[ci.unit_id];
+        const isHabitualArea = geoSignal && geoSignal.habitual_dumping_risk > 0.5;
+        const anomalySignal = ci.anomalySignal;
+        const hasAnomaly = anomalySignal && anomalySignal.anomaly_flag === true;
         
         // key_drivers에서 _id 필드 제거 (MongoDB 객체 직렬화 문제 해결)
         const cleanKeyDrivers = (ci.explain?.key_drivers || []).map(driver => {
@@ -238,13 +296,20 @@ router.get('/', async (req, res) => {
           return driver;
         }).filter(d => d && d.signal && d.value !== undefined); // signal과 value가 있는 것만
         
-        // why_summary에 상습지역 정보 추가
+        // why_summary에 상습지역 정보 및 AI 이상 탐지 정보 추가
         let whySummary = ci.explain?.why_summary || '';
         if (isHabitualArea && geoSignal) {
           const habitualInfo = `상습 무단투기 지역 (위험도: ${Math.round(geoSignal.habitual_dumping_risk * 100)}%)`;
           whySummary = whySummary 
             ? `${whySummary}, ${habitualInfo}`
             : habitualInfo;
+        }
+        // AI 이상 탐지 결과 추가 (급격한 악화 신호)
+        if (hasAnomaly && anomalySignal.explanation) {
+          const anomalyInfo = `[AI 이상 탐지] ${anomalySignal.explanation}`;
+          whySummary = whySummary 
+            ? `${whySummary}. ${anomalyInfo}`
+            : anomalyInfo;
         }
         
         // 지역 이름 결정: spatial_unit에 있으면 그것 사용, 없으면 구 이름 매핑 사용
@@ -292,7 +357,11 @@ router.get('/', async (req, res) => {
           level_kr: statusKr, // status_kr과 동일 (프론트엔드 호환성)
           comfort_index: comfortIndex, // 편의성 지수 (100 - UCI)
           // 상습지역 정보 추가 (신규)
-          habitual_dumping_risk: geoSignal ? geoSignal.habitual_dumping_risk : null
+          habitual_dumping_risk: geoSignal ? geoSignal.habitual_dumping_risk : null,
+          // AI 이상 탐지 정보 추가
+          anomaly_score: anomalySignal ? anomalySignal.anomaly_score : null,
+          anomaly_flag: hasAnomaly,
+          anomaly_explanation: anomalySignal ? anomalySignal.explanation : null
         };
       });
 
