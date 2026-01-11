@@ -568,6 +568,17 @@ router.get('/interventions/:intervention_id/effect', async (req, res) => {
       unit_id: intervention.unit_id,
       date: { $gte: followupStart, $lte: followupEnd }
     }).sort({ date: 1 });
+    
+    // 수거 현황 데이터 조회 (Before/After 비교용)
+    const baselineCleanup = await CleanupLog.find({
+      unit_id: intervention.unit_id,
+      date: { $gte: baselineStart, $lte: baselineEnd }
+    }).sort({ date: 1 });
+    
+    const followupCleanup = await CleanupLog.find({
+      unit_id: intervention.unit_id,
+      date: { $gte: followupStart, $lte: followupEnd }
+    }).sort({ date: 1 });
 
     const baselineAvg = baselineUCI.length > 0
       ? baselineUCI.reduce((sum, ci) => sum + ci.uci_score, 0) / baselineUCI.length
@@ -576,6 +587,17 @@ router.get('/interventions/:intervention_id/effect', async (req, res) => {
     const followupAvg = followupUCI.length > 0
       ? followupUCI.reduce((sum, ci) => sum + ci.uci_score, 0) / followupUCI.length
       : 0;
+    
+    // 수거 현황 Before/After 비교
+    const baselineCleanupAvg = baselineCleanup.length > 0
+      ? baselineCleanup.reduce((sum, cl) => sum + (cl.collection_rate || 0), 0) / baselineCleanup.length
+      : 0;
+    
+    const followupCleanupAvg = followupCleanup.length > 0
+      ? followupCleanup.reduce((sum, cl) => sum + (cl.collection_rate || 0), 0) / followupCleanup.length
+      : 0;
+    
+    const cleanupImprovement = followupCleanupAvg - baselineCleanupAvg;
 
     res.json({
       success: true,
@@ -600,7 +622,27 @@ router.get('/interventions/:intervention_id/effect', async (req, res) => {
           data: followupUCI
         },
         improvement: baselineAvg > 0 ? ((baselineAvg - followupAvg) / baselineAvg * 100) : 0,
-        effect_size: baselineAvg - followupAvg
+        effect_size: baselineAvg - followupAvg,
+        // 수거 현황 변화 (신규)
+        cleanup_status: {
+          baseline: {
+            average_collection_rate: baselineCleanupAvg,
+            data: baselineCleanup.map(cl => ({
+              date: cl.date,
+              collection_rate: cl.collection_rate,
+              collection_amount: cl.collection_amount
+            }))
+          },
+          followup: {
+            average_collection_rate: followupCleanupAvg,
+            data: followupCleanup.map(cl => ({
+              date: cl.date,
+              collection_rate: cl.collection_rate,
+              collection_amount: cl.collection_amount
+            }))
+          },
+          improvement: cleanupImprovement
+        }
       }
     });
   } catch (error) {

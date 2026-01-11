@@ -4,6 +4,7 @@ import SignalHuman from '../models/SignalHuman.js';
 import SignalGeo from '../models/SignalGeo.js';
 import SignalPopulation from '../models/SignalPopulation.js';
 import BaselineMetric from '../models/BaselineMetric.js';
+import TimePatternTemplate from '../models/TimePatternTemplate.js';
 import { subDays, format, parseISO } from 'date-fns';
 
 const router = express.Router();
@@ -125,12 +126,46 @@ async function generateCardForUnit(comfortIndex, date, usePigeon) {
     const avgNight = nightRatios.length > 0 ? nightRatios.reduce((a, b) => a + b, 0) / nightRatios.length : 0;
     const avgRepeat = repeatRatios.length > 0 ? repeatRatios.reduce((a, b) => a + b, 0) / repeatRatios.length : 0;
 
-    if (avgNight > 0.6) {
-      titleParts.push('야간 민원 급증');
-      whyParts.push(`야간 집중도 ${Math.round(avgNight * 100)}%로 높아 야간 배출/관리 공백 가능성`);
-      actions.push('야간(20~02시) 집중 청소/수거');
-      actions.push('주말 민원 다발 시간대 순찰 강화');
-      tags.push('night_spike');
+    // 시간 패턴 템플릿 조회 및 적용
+    const timePatternTemplate = await TimePatternTemplate.findOne({
+      pattern_type: 'illegal_dumping'
+    });
+    
+    // 템플릿 기반 시간 패턴 분석
+    if (timePatternTemplate) {
+      const template = timePatternTemplate.time_pattern;
+      
+      // 야간 비중이 높은 템플릿 패턴과 비교
+      if (template.night_ratio > 0.6 && avgNight > 0.4) {
+        titleParts.push('야간 민원 급증');
+        whyParts.push(`야간 집중도 ${Math.round(avgNight * 100)}%로 높아 야간 배출/관리 공백 가능성 (전주시 패턴과 유사)`);
+        actions.push('야간(20~02시) 집중 청소/수거');
+        actions.push('주말 민원 다발 시간대 순찰 강화');
+        tags.push('night_spike');
+      }
+      
+      // 주말 비중이 높은 템플릿 패턴과 비교
+      if (template.weekend_ratio > 0.4) {
+        actions.push('주말 집중 순찰 및 관리 강화');
+        if (!tags.includes('weekend_spike')) {
+          tags.push('weekend_spike');
+        }
+      }
+      
+      // 피크 시간대 기반 권고
+      if (template.peak_hours && template.peak_hours.length > 0) {
+        const peakHoursStr = template.peak_hours.map(h => `${h}시`).join(', ');
+        actions.push(`피크 시간대(${peakHoursStr}) 집중 관리`);
+      }
+    } else {
+      // 템플릿이 없으면 기존 로직 사용
+      if (avgNight > 0.6) {
+        titleParts.push('야간 민원 급증');
+        whyParts.push(`야간 집중도 ${Math.round(avgNight * 100)}%로 높아 야간 배출/관리 공백 가능성`);
+        actions.push('야간(20~02시) 집중 청소/수거');
+        actions.push('주말 민원 다발 시간대 순찰 강화');
+        tags.push('night_spike');
+      }
     }
 
     if (avgRepeat > 0.5) {

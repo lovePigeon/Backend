@@ -18,6 +18,28 @@ const SignalGeoSchema = new mongoose.Schema({
     min: 0,
     max: 1
   },
+  // 상습 무단투기 지역 정보 (신규)
+  habitual_dumping_risk: {
+    type: Number,
+    // 상습 무단투기 위험도 (0-1)
+    min: 0,
+    max: 1
+  },
+  habitual_dumping_count: {
+    type: Number,
+    // 상습 지역 지정 횟수
+    min: 0,
+    default: 0
+  },
+  habitual_dumping_locations: [{
+    lat: Number,
+    lng: Number,
+    address: String,
+    risk_level: {
+      type: String,
+      enum: ['high', 'medium', 'low']
+    }
+  }],
   source: {
     type: String,
     required: true

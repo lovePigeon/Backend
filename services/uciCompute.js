@@ -74,6 +74,19 @@ export async function computeUCIForUnit(unitId, date, windowWeeks = 4, usePigeon
 
   // 설명 생성 (베이스라인 정보 포함)
   const explain = generateExplain(humanData, geoData, popData, humanScore, geoScore, popScore, windowWeeks, humanBaseline);
+  
+  // key_drivers를 일반 객체로 변환 (MongoDB _id 필드 제거)
+  if (explain.key_drivers && Array.isArray(explain.key_drivers)) {
+    explain.key_drivers = explain.key_drivers.map(driver => {
+      if (driver && typeof driver === 'object') {
+        // Mongoose 문서 객체를 일반 객체로 변환
+        const plain = driver.toObject ? driver.toObject() : driver;
+        delete plain._id;
+        return plain;
+      }
+      return driver;
+    });
+  }
 
   return {
     unit_id: unitId,
@@ -200,20 +213,27 @@ function computeGeoScore(data) {
     landuse_mix: data.landuse_mix || 0
   };
 
+  // 상습 무단투기 위험도 추가 (신규)
+  const habitualDumpingRisk = data.habitual_dumping_risk || 0;
+  const habitualDumpingCount = data.habitual_dumping_count || 0;
+  
   const normalized = {
     alley_density: Math.min(1.0, values.alley_density / 100.0),
     backroad_ratio: values.backroad_ratio,
     ventilation_proxy: Math.min(1.0, Math.max(0, 1 - values.ventilation_proxy / 10.0)),
     accessibility_proxy: Math.min(1.0, Math.max(0, 1 - values.accessibility_proxy / 10.0)),
-    landuse_mix: values.landuse_mix
+    landuse_mix: values.landuse_mix,
+    habitual_dumping_risk: habitualDumpingRisk  // 0-1 범위
   };
 
+  // geoScore 계산 시 상습지역 가중치 추가
   const geoScore = (
-    normalized.alley_density * 0.3 +
-    normalized.backroad_ratio * 0.25 +
-    normalized.ventilation_proxy * 0.2 +
-    normalized.accessibility_proxy * 0.15 +
-    normalized.landuse_mix * 0.1
+    normalized.alley_density * 0.25 +           // 가중치 감소
+    normalized.backroad_ratio * 0.20 +          // 가중치 감소
+    normalized.ventilation_proxy * 0.15 +       // 가중치 감소
+    normalized.accessibility_proxy * 0.12 +     // 가중치 감소
+    normalized.landuse_mix * 0.08 +             // 가중치 감소
+    normalized.habitual_dumping_risk * 0.20     // 신규: 상습지역 가중치
   );
 
   return { score: geoScore, normalized };
@@ -333,9 +353,15 @@ function generateExplain(humanData, geoData, popData, humanScore, geoScore, popS
       drivers.push({ signal: 'repeat_ratio', value: Math.round(repeatAvg * 100) / 100 });
     }
 
-    // 총 민원 건수 (항상 추가)
+    // 총 민원 건수 (항상 추가하고 why_summary에도 포함)
     if (total > 0) {
       drivers.push({ signal: 'total_complaints', value: total });
+      // summaryParts가 비어있으면 총 민원 건수라도 표시
+      if (summaryParts.length === 0) {
+        summaryParts.push(`총 민원 ${total.toLocaleString()}건`);
+      } else {
+        summaryParts.unshift(`총 민원 ${total.toLocaleString()}건`);
+      }
     }
   }
 
@@ -363,13 +389,32 @@ function generateExplain(humanData, geoData, popData, humanScore, geoScore, popS
     }
   }
 
-  const whySummary = summaryParts.length > 0 
-    ? summaryParts.join(', ') 
-    : `최근 ${windowWeeks}주간 신호 분석`;
+  // why_summary 생성: summaryParts가 있으면 조합, 없으면 기본 메시지
+  let whySummary;
+  if (summaryParts.length > 0) {
+    whySummary = summaryParts.join(', ');
+  } else {
+    // 최소한 총 민원 건수라도 표시
+    const totalComplaints = drivers.find(d => d.signal === 'total_complaints');
+    if (totalComplaints && totalComplaints.value > 0) {
+      whySummary = `총 민원 ${totalComplaints.value.toLocaleString()}건`;
+    } else {
+      whySummary = `최근 ${windowWeeks}주간 신호 분석`;
+    }
+  }
+
+  // key_drivers에서 _id 필드 제거 (MongoDB 객체 직렬화 시 포함되는 필드)
+  const cleanDrivers = drivers.map(driver => {
+    if (driver && typeof driver === 'object') {
+      const { _id, ...rest } = driver;
+      return rest;
+    }
+    return driver;
+  }).filter(d => d); // null/undefined 제거
 
   return {
     why_summary: whySummary,
-    key_drivers: drivers,
+    key_drivers: cleanDrivers,
     baseline_reference: baseline ? {
       period: baseline.period,
       citywide_total: baseline.citywide_total

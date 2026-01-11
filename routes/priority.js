@@ -1,6 +1,7 @@
 import express from 'express';
 import ComfortIndex from '../models/ComfortIndex.js';
 import SpatialUnit from '../models/SpatialUnit.js';
+import SignalGeo from '../models/SignalGeo.js';
 
 const router = express.Router();
 
@@ -86,23 +87,26 @@ router.get('/', async (req, res) => {
     let targetDate = date;
     let comfortIndices = [];
 
-    // 요청된 날짜로 먼저 조회
+    // 요청된 날짜로 먼저 조회 (.lean()으로 일반 객체로 변환)
     if (targetDate) {
       comfortIndices = await ComfortIndex.find({ date: targetDate })
         .sort({ uci_score: -1 })
-        .limit(parseInt(top_n));
+        .limit(parseInt(top_n))
+        .lean();
     }
 
     // 해당 날짜에 데이터가 없으면 최신 날짜 조회
     if (!targetDate || comfortIndices.length === 0) {
       const latestComfortIndex = await ComfortIndex.findOne()
-        .sort({ date: -1 });
+        .sort({ date: -1 })
+        .lean();
       
       if (latestComfortIndex) {
         targetDate = latestComfortIndex.date;
         comfortIndices = await ComfortIndex.find({ date: targetDate })
           .sort({ uci_score: -1 })
-          .limit(parseInt(top_n));
+          .limit(parseInt(top_n))
+          .lean();
       }
     }
 
@@ -127,18 +131,57 @@ router.get('/', async (req, res) => {
       unitsMap[u._id] = u.name; 
     });
 
+    // 상습지역 정보 조회 (Priority Queue 가중치 강화용)
+    const geoSignals = await SignalGeo.find({ _id: { $in: unitIds } }).lean();
+    const geoMap = {};
+    geoSignals.forEach(geo => {
+      geoMap[geo._id] = geo;
+    });
+
     // items 생성 (unit이 없어도 unit_id로 표시)
     const items = comfortIndices
       .filter(ci => ci.unit_id) // unit_id가 있는 것만
-      .map((ci, index) => ({
-        rank: index + 1,
-        unit_id: ci.unit_id,
-        name: unitsMap[ci.unit_id] || ci.unit_id,
-        uci_score: ci.uci_score,
-        uci_grade: ci.uci_grade,
-        why_summary: ci.explain?.why_summary || '',
-        key_drivers: ci.explain?.key_drivers || []
-      }));
+      .map((ci, index) => {
+        // 상습지역 정보 확인
+        const geoSignal = geoMap[ci.unit_id];
+        const isHabitualArea = geoSignal && geoSignal.habitual_dumping_risk > 0.5;
+        
+        // key_drivers에서 _id 필드 제거 (MongoDB 객체 직렬화 문제 해결)
+        const cleanKeyDrivers = (ci.explain?.key_drivers || []).map(driver => {
+          if (driver && typeof driver === 'object') {
+            // 객체 복사 및 _id 제거
+            const clean = JSON.parse(JSON.stringify(driver));
+            delete clean._id;
+            // 필요한 필드만 반환
+            return {
+              signal: clean.signal,
+              value: clean.value
+            };
+          }
+          return driver;
+        }).filter(d => d && d.signal && d.value !== undefined); // signal과 value가 있는 것만
+        
+        // why_summary에 상습지역 정보 추가
+        let whySummary = ci.explain?.why_summary || '';
+        if (isHabitualArea && geoSignal) {
+          const habitualInfo = `상습 무단투기 지역 (위험도: ${Math.round(geoSignal.habitual_dumping_risk * 100)}%)`;
+          whySummary = whySummary 
+            ? `${whySummary}, ${habitualInfo}`
+            : habitualInfo;
+        }
+        
+        return {
+          rank: index + 1,
+          unit_id: ci.unit_id,
+          name: unitsMap[ci.unit_id] || ci.unit_id,
+          uci_score: ci.uci_score,
+          uci_grade: ci.uci_grade,
+          why_summary: whySummary,
+          key_drivers: cleanKeyDrivers,
+          // 상습지역 정보 추가 (신규)
+          habitual_dumping_risk: geoSignal ? geoSignal.habitual_dumping_risk : null
+        };
+      });
 
     // items가 비어있으면 빈 배열 반환
     if (items.length === 0) {
