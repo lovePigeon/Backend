@@ -1,0 +1,52 @@
+{
+  "name": "living-lab-backend",
+  "version": "1.0.0",
+  "description": "민원냠냠 Core Engine API - Node.js/Express",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "seed": "node scripts/seed_demo_data.js",
+    "test": "jest",
+    "etl": "node scripts/etl_human_signals.js",
+    "etl-baseline": "node scripts/etl_baseline_metrics.js",
+    "etl-habitual": "node scripts/etl_habitual_dumping_areas.js",
+    "etl-cleanup": "node scripts/etl_cleanup_logs.js",
+    "etl-time-pattern": "node scripts/etl_time_pattern_templates.js",
+    "etl-population": "node scripts/etl_population_signals.js",
+    "etl-district": "node scripts/etl_district_complaints.js",
+    "update-names": "node scripts/update_spatial_unit_names.js",
+    "compute-uci": "node scripts/compute_comfort_index.js",
+    "priority": "node scripts/generate_priority_queue.js",
+    "blind-spots": "node scripts/generate_blind_spots.js",
+    "pipeline": "node scripts/run_etl_pipeline.js"
+  },
+  "keywords": [
+    "mongodb",
+    "express",
+    "api",
+    "uci"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "csv-parser": "^3.2.0",
+    "csv-writer": "^1.6.0",
+    "date-fns": "^3.0.6",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "iconv-lite": "^0.7.2",
+    "joi": "^17.11.0",
+    "mongoose": "^8.0.1",
+    "multer": "^1.4.5-lts.1",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "nodemon": "^3.0.2"
+  }
+}
