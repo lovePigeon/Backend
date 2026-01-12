@@ -17,11 +17,14 @@
     "etl-population": "node scripts/etl_population_signals.js",
     "etl-district": "node scripts/etl_district_complaints.js",
     "update-names": "node scripts/update_spatial_unit_names.js",
-    "compute-uci": "node scripts/compute_comfort_index.js",
+        "compute-uci": "node scripts/compute_comfort_index.js",
+        "compute-uci-multiple": "node scripts/compute_uci_multiple_dates.js",
     "compute-anomaly": "node scripts/compute_anomaly_scores.js",
     "priority": "node scripts/generate_priority_queue.js",
     "blind-spots": "node scripts/generate_blind_spots.js",
-    "pipeline": "node scripts/run_etl_pipeline.js"
+    "pipeline": "node scripts/run_etl_pipeline.js",
+    "validate-data": "node scripts/validate_data.js",
+    "fix-grade-mismatches": "node scripts/fix_grade_mismatches.js"
   },
   "keywords": [
     "mongodb",

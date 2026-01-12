@@ -72,7 +72,7 @@ router.get('/', async (req, res) => {
  *         required: true
  *         schema:
  *           type: string
- *         description: Unit ID
+ *         description: Unit ID (지역 코드)
  *     responses:
  *       200:
  *         description: Unit 정보
@@ -96,6 +96,8 @@ router.get('/', async (req, res) => {
  *                 value:
  *                   success: false
  *                   message: "Unit not found"
+ *       500:
+ *         description: 서버 오류
  */
 router.get('/:unit_id', async (req, res) => {
   try {
@@ -124,25 +126,29 @@ router.get('/:unit_id', async (req, res) => {
  *   get:
  *     summary: 반경 내 units 조회 (GeoJSON)
  *     tags: [Units]
+ *     description: 지정된 좌표 반경 내의 공간 단위를 조회합니다.
  *     parameters:
  *       - in: query
  *         name: lng
  *         required: true
  *         schema:
  *           type: number
- *         description: 경도
+ *         description: 경도 (longitude)
+ *         example: 126.9780
  *       - in: query
  *         name: lat
  *         required: true
  *         schema:
  *           type: number
- *         description: 위도
+ *         description: 위도 (latitude)
+ *         example: 37.5665
  *       - in: query
  *         name: radius_m
  *         schema:
  *           type: number
  *           default: 1000
  *         description: 반경 (미터)
+ *         example: 1000
  *     responses:
  *       200:
  *         description: 반경 내 units 목록
@@ -156,6 +162,10 @@ router.get('/:unit_id', async (req, res) => {
  *                     geom:
  *                       type: "Polygon"
  *                       coordinates: [[[126.978, 37.566], [126.988, 37.566], [126.988, 37.576], [126.978, 37.576], [126.978, 37.566]]]
+ *       400:
+ *         description: 필수 파라미터 누락
+ *       500:
+ *         description: 서버 오류
  */
 router.get('/within/geo', async (req, res) => {
   try {
@@ -192,6 +202,7 @@ router.get('/within/geo', async (req, res) => {
  *   post:
  *     summary: Spatial unit 생성
  *     tags: [Units]
+ *     description: 새로운 공간 단위를 생성합니다.
  *     requestBody:
  *       required: true
  *       content:
@@ -205,10 +216,25 @@ router.get('/within/geo', async (req, res) => {
  *             properties:
  *               unit_id:
  *                 type: string
+ *                 description: 지역 ID (고유 식별자)
  *               name:
  *                 type: string
+ *                 description: 지역 이름
  *               geom:
  *                 type: object
+ *                 description: GeoJSON 형식의 지오메트리 (Polygon 또는 MultiPolygon)
+ *               meta:
+ *                 type: object
+ *                 description: 추가 메타데이터 (선택)
+ *           examples:
+ *             createUnit:
+ *               value:
+ *                 unit_id: "11110515"
+ *                 name: "청운효자동"
+ *                 geom:
+ *                   type: "Polygon"
+ *                   coordinates: [[[126.978, 37.566], [126.988, 37.566], [126.988, 37.576], [126.978, 37.576], [126.978, 37.566]]]
+ *                 meta: {}
  *     responses:
  *       201:
  *         description: Unit 생성 성공
@@ -223,6 +249,10 @@ router.get('/within/geo', async (req, res) => {
  *                     type: "Polygon"
  *                     coordinates: [[[126.978, 37.566], [126.988, 37.566], [126.988, 37.576], [126.978, 37.576], [126.978, 37.566]]]
  *                   meta: {}
+ *       400:
+ *         description: 잘못된 요청 (필수 필드 누락 또는 형식 오류)
+ *       500:
+ *         description: 서버 오류
  */
 router.post('/', async (req, res) => {
   try {

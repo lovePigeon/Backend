@@ -3,6 +3,7 @@ import ComfortIndex from '../models/ComfortIndex.js';
 import SpatialUnit from '../models/SpatialUnit.js';
 import SignalGeo from '../models/SignalGeo.js';
 import AnomalySignal from '../models/AnomalySignal.js';
+import { validate, endpointSchemas } from '../middleware/validate.js';
 
 const router = express.Router();
 
@@ -172,7 +173,7 @@ function getDistrictName(unitId) {
  *                         value: 1878
  *                     habitual_dumping_risk: null
  */
-router.get('/', async (req, res) => {
+router.get('/', validate(endpointSchemas.getPriorityQueue, 'query'), async (req, res) => {
   try {
     const { date, top_n = 20 } = req.query;
 

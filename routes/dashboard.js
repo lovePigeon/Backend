@@ -415,11 +415,13 @@ router.get('/uci', async (req, res) => {
  *         name: unit_id
  *         schema:
  *           type: string
+ *         description: 특정 지역만 조회 (선택)
  *       - in: query
  *         name: status
  *         schema:
  *           type: string
  *           enum: [active, completed]
+ *         description: 상태 필터 (active: 진행중, completed: 완료)
  *     responses:
  *       200:
  *         description: 개선 사업 데이터
@@ -667,6 +669,7 @@ router.get('/interventions/:intervention_id/effect', async (req, res) => {
  *           type: string
  *           enum: [quarter, month]
  *           default: quarter
+ *         description: 기간 단위 (quarter: 분기별, month: 월별)
  *     responses:
  *       200:
  *         description: 분기별 추세 데이터
@@ -684,6 +687,8 @@ router.get('/interventions/:intervention_id/effect', async (req, res) => {
  *                     - period: "2023 Q2"
  *                       citywide: 67
  *                       improvement: 3
+ *       500:
+ *         description: 서버 오류
  */
 router.get('/trends', async (req, res) => {
   try {
@@ -785,6 +790,7 @@ router.get('/trends', async (req, res) => {
  *         schema:
  *           type: string
  *           format: date
+ *         description: 날짜 (YYYY-MM-DD, 없으면 오늘)
  *     responses:
  *       200:
  *         description: 지역별 현황 데이터
@@ -794,12 +800,15 @@ router.get('/trends', async (req, res) => {
  *               regionalTrends:
  *                 value:
  *                   success: true
+ *                   date: "2026-01-08"
  *                   data:
  *                     - district: "강남구"
  *                       lat: 37.5172
  *                       lng: 127.0473
  *                       trend: "improving"
  *                       index: 64
+ *       500:
+ *         description: 서버 오류
  */
 router.get('/regional-trends', async (req, res) => {
   try {

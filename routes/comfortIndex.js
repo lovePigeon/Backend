@@ -4,6 +4,7 @@ import SpatialUnit from '../models/SpatialUnit.js';
 import AnomalySignal from '../models/AnomalySignal.js';
 import { computeUCIForUnit } from '../services/uciCompute.js';
 import { settings } from '../config/settings.js';
+import { validate, endpointSchemas } from '../middleware/validate.js';
 
 const router = express.Router();
 
@@ -56,7 +57,7 @@ const router = express.Router();
  *                         - signal: "night_ratio"
  *                           value: 0.72
  */
-router.get('/', async (req, res) => {
+router.get('/', validate(endpointSchemas.getComfortIndex, 'query'), async (req, res) => {
   try {
     const { date, grade, top_k } = req.query;
 
@@ -104,12 +105,13 @@ router.get('/', async (req, res) => {
  *         required: true
  *         schema:
  *           type: string
+ *         description: 지역 ID
  *       - in: query
  *         name: date
  *         schema:
  *           type: string
  *           format: date
- *         description: 날짜 (없으면 최신)
+ *         description: 날짜 (YYYY-MM-DD, 없으면 최신)
  *     responses:
  *       200:
  *         description: Comfort index
@@ -242,7 +244,7 @@ router.get('/:unit_id', async (req, res) => {
  *                       uci_grade: "D"
  *                       status: "success"
  */
-router.post('/compute', async (req, res) => {
+router.post('/compute', validate(endpointSchemas.computeUCI, 'body'), async (req, res) => {
   try {
     const { date, unit_id, window_weeks = settings.defaultWindowWeeks, use_pigeon = false } = req.body;
     

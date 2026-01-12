@@ -4,6 +4,7 @@ import { detectAnomaly } from '../services/anomalyDetection.js';
 import SignalHuman from '../models/SignalHuman.js';
 import SpatialUnit from '../models/SpatialUnit.js';
 import { format, parseISO } from 'date-fns';
+import { validate, endpointSchemas } from '../middleware/validate.js';
 
 const router = express.Router();
 
@@ -57,7 +58,7 @@ const router = express.Router();
  *                       anomaly_flag: true
  *                       status: "success"
  */
-router.post('/compute', async (req, res) => {
+router.post('/compute', validate(endpointSchemas.computeAnomaly, 'body'), async (req, res) => {
   try {
     const { date, unit_id } = req.body;
 
@@ -195,7 +196,7 @@ router.post('/compute', async (req, res) => {
  *                     stats:
  *                       z_score: 3.2
  */
-router.get('/', async (req, res) => {
+router.get('/', validate(endpointSchemas.getAnomaly, 'query'), async (req, res) => {
   try {
     const { date, unit_id, anomaly_flag } = req.query;
 
@@ -244,17 +245,38 @@ router.get('/', async (req, res) => {
  *         required: true
  *         schema:
  *           type: string
+ *         description: 지역 ID
  *       - in: query
  *         name: date
  *         schema:
  *           type: string
  *           format: date
- *         description: 날짜 (없으면 최신)
+ *         description: 날짜 (YYYY-MM-DD, 없으면 최신)
  *     responses:
  *       200:
  *         description: 이상 탐지 결과
+ *         content:
+ *           application/json:
+ *             examples:
+ *               anomaly:
+ *                 value:
+ *                   unit_id: "11110"
+ *                   date: "2025-12-01"
+ *                   anomaly_score: 0.85
+ *                   anomaly_flag: true
+ *                   explanation: "최근 4주 민원이 45% 증가, 통계적 이상치 감지"
+ *                   features:
+ *                     complaint_change_4w: 0.45
+ *                     complaint_growth_rate: 0.32
  *       404:
  *         description: 이상 탐지 결과를 찾을 수 없음
+ *         content:
+ *           application/json:
+ *             examples:
+ *               notFound:
+ *                 value:
+ *                   success: false
+ *                   message: "Anomaly signal not found"
  */
 router.get('/:unit_id', async (req, res) => {
   try {

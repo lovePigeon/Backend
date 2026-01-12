@@ -1,5 +1,6 @@
 import express from 'express';
 import Intervention from '../models/Intervention.js';
+import { validate, endpointSchemas } from '../middleware/validate.js';
 
 const router = express.Router();
 
@@ -53,7 +54,7 @@ const router = express.Router();
  *                   meta: {}
  *                   created_at: "2026-01-08T00:00:00.000Z"
  */
-router.post('/', async (req, res) => {
+router.post('/', validate(endpointSchemas.createIntervention, 'body'), async (req, res) => {
   try {
     const intervention = new Intervention(req.body);
     await intervention.save();
