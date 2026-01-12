@@ -27,7 +27,9 @@ const options = {
       { name: 'GeoJSON', description: 'GeoJSON endpoints for Mapbox' },
       { name: 'Data', description: 'Data upload and management' },
       { name: 'Dashboard', description: 'Dashboard data endpoints' },
-      { name: 'Analytics', description: 'Data analysis and statistics endpoints' }
+      { name: 'Analytics', description: 'Data analysis and statistics endpoints' },
+      { name: 'Anomaly Detection', description: 'AI-based anomaly detection endpoints' },
+      { name: 'UCI Info', description: 'UCI calculation logic information' }
     ],
     components: {
       schemas: {

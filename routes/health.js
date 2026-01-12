@@ -9,6 +9,7 @@ const router = express.Router();
  *   get:
  *     summary: Health check endpoint
  *     tags: [Health]
+ *     description: 서버 및 데이터베이스 연결 상태를 확인합니다.
  *     responses:
  *       200:
  *         description: 서버가 정상 작동 중입니다

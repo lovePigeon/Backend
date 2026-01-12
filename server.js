@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import swaggerUi from 'swagger-ui-express';
 import { swaggerSpec } from './config/swagger.js';
 import { connectDB } from './config/database.js';
+import { validateEnv } from './config/env.js';
 import healthRoutes from './routes/health.js';
 import comfortIndexRoutes from './routes/comfortIndex.js';
 import priorityRoutes from './routes/priority.js';
@@ -15,8 +16,18 @@ import dashboardRoutes from './routes/dashboard.js';
 import interventionsRoutes from './routes/interventions.js';
 import uciInfoRoutes from './routes/uciInfo.js';
 import anomalyRoutes from './routes/anomaly.js';
+import analyticsRoutes from './routes/analytics.js';
+import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 
 dotenv.config();
+
+// 환경 변수 검증
+try {
+  validateEnv();
+} catch (error) {
+  console.error(error.message);
+  process.exit(1);
+}
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -47,6 +58,7 @@ app.use('/api/v1/dashboard', dashboardRoutes);
 app.use('/api/v1/interventions', interventionsRoutes); // POST로 조치 등록
 app.use('/api/v1/uci-info', uciInfoRoutes); // UCI 계산 로직 설명
 app.use('/api/v1/anomaly', anomalyRoutes); // AI 이상 탐지
+app.use('/api/v1/analytics', analyticsRoutes); // 시계열 분석 및 데이터 보강
 
 // 루트
 /**
@@ -72,28 +84,17 @@ app.get('/', (req, res) => {
       action_cards: '/api/v1/action-cards',
       geo: '/api/v1/geo',
       uci_info: '/api/v1/uci-info',
-      anomaly: '/api/v1/anomaly'
+      anomaly: '/api/v1/anomaly',
+      analytics: '/api/v1/analytics'
     }
   });
 });
 
-// 에러 핸들링
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({
-    success: false,
-    message: '서버 오류가 발생했습니다.',
-    error: process.env.NODE_ENV === 'development' ? err.message : undefined
-  });
-});
+// 에러 핸들링 (모든 라우트 다음에 배치)
+app.use(errorHandler);
 
-// 404 핸들러
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: '요청한 엔드포인트를 찾을 수 없습니다.'
-  });
-});
+// 404 핸들러 (모든 라우트 다음에 배치)
+app.use(notFoundHandler);
 
 app.listen(PORT, () => {
   console.log(`🚀 Server is running on port ${PORT}`);

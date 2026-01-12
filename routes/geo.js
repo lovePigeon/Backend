@@ -17,9 +17,28 @@ const router = express.Router();
  *         schema:
  *           type: string
  *           format: date
+ *         description: 날짜 (YYYY-MM-DD)
  *     responses:
  *       200:
  *         description: GeoJSON FeatureCollection
+ *         content:
+ *           application/json:
+ *             examples:
+ *               geojson:
+ *                 value:
+ *                   type: "FeatureCollection"
+ *                   features:
+ *                     - type: "Feature"
+ *                       geometry:
+ *                         type: "Polygon"
+ *                         coordinates: [[[126.978, 37.566], [126.988, 37.566], [126.988, 37.576], [126.978, 37.576], [126.978, 37.566]]]
+ *                       properties:
+ *                         unit_id: "11110515"
+ *                         name: "필운동"
+ *                         uci_score: 78.2
+ *                         uci_grade: "D"
+ *       500:
+ *         description: 서버 오류
  */
 router.get('/comfort-index.geojson', async (req, res) => {
   try {

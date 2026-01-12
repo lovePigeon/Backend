@@ -281,6 +281,46 @@ router.get('/files/:filename', (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/v1/data/files/{filename}:
+ *   delete:
+ *     summary: CSV 파일 삭제
+ *     tags: [Data]
+ *     parameters:
+ *       - in: path
+ *         name: filename
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: 파일명
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *           enum: [raw, processed, uploads]
+ *           default: raw
+ *         description: 파일 타입
+ *     responses:
+ *       200:
+ *         description: 파일 삭제 성공
+ *         content:
+ *           application/json:
+ *             examples:
+ *               deleted:
+ *                 value:
+ *                   success: true
+ *                   message: "파일이 삭제되었습니다."
+ *       404:
+ *         description: 파일을 찾을 수 없음
+ *         content:
+ *           application/json:
+ *             examples:
+ *               notFound:
+ *                 value:
+ *                   success: false
+ *                   message: "파일을 찾을 수 없습니다."
+ */
 // CSV 파일 삭제
 router.delete('/files/:filename', (req, res) => {
   try {
